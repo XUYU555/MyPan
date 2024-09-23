@@ -1,0 +1,95 @@
+server:
+  port: 7090
+#   访问路径前缀
+  servlet:
+    context-path: /api
+#    session过期时间60M 一个小时
+    session:
+      timeout: PT60M
+spring:
+#  传输文件大小限制
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  #  异常处理
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+#      数据库配置
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/mypan?serverTimezone=GMT%2B8&useUnicode=true&characterEncoding=utf8&autoReconnect=true&allowMultiQueries=true
+    username: root
+    password: 1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+#    数据库连接池
+    hikari:
+      pool-name: HikariCPDDatasource
+      minimum-idle: 5
+      idle-timeout: 180000
+      maximum-pool-size: 10
+      auto-commit: true
+      max-lifetime: 180000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
+#  邮件配置
+  mail:
+#    服务地址
+    host: smtp.qq.com
+#    端口
+    port: 465
+#    配置用户的账户
+    username: 2090044620@qq.com
+#    用户的密码
+    password: dbrhhmsxrrlpeige
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true  # 确保启用了SSL
+          socketFactory:
+            class: javax.net.ssl.SSLSocketFactory
+            fallback: false
+            port: 465
+        debug: true  # 开启调试日志
+#  redis配置
+  redis:
+    database: 0
+    host: 192.168.129.135
+    port: 6379
+#    连接池配置
+    jedis:
+      pool:
+        enabled: true
+        max-active: 20
+        max-wait: 1
+        max-idle: 10
+        min-idle: 0
+    connect-timeout: 2000
+#  日志目录配置
+project:
+  folder: D:/webser/web_app/mypan/
+#  日志级别配置
+log:
+  root:
+    level: debug
+#  是否是开发环境
+dev: false
+#  超级管理员id
+admin:
+  emails: 2090044620@qq.com
+#  qq登陆相关
+#  qq.app.id=12333
+#  qq.app.key=2222222
+#  qq.url.authorization=https://graph.qq.com/oauth2.0/authorize?response_type=code&client_id=%s&redirect_uri=%s&state=%s
+#  qq.url.access.token=https://graph.qq.com/oauth2.0/token?grant_type=authorization_code&client_id=%s&client_secret=%s&code=%s&redirect_uri=%s
+#  qq.url.openid=https://graph.qq.com/oauth2.0/me?access_token=%S
+#  qq.url.user.info=https://graph.qq.com/user/get_user_info?access_token=%s&oauth_consumer_key=%s&openid=%s
+#  qq.url.redirect=http://easypan.wuhancoder.com/qqlogincalback
+mybatis-plus:
+  type-aliases-package: com.xxyy.entity
+
