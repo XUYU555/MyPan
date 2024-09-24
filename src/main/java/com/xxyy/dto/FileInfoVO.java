@@ -3,6 +3,7 @@ package com.xxyy.dto;
 import com.xxyy.entity.FileInfo;
 import lombok.Data;
 
+import java.text.SimpleDateFormat;
 import java.util.Date;
 
 /**
@@ -23,9 +24,9 @@ public class FileInfoVO {
 
     private String fileCover;
 
-    private Date createTime;
+    private String createTime;
 
-    private Date lastUpdateTime;
+    private String lastUpdateTime;
 
     private int folderType;
 
@@ -34,14 +35,15 @@ public class FileInfoVO {
     private int status;
 
     public static FileInfoVO of(FileInfo fileInfo) {
+        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         FileInfoVO fileInfoVO = new FileInfoVO();
         fileInfoVO.fileId = fileInfo.getFileId();
         fileInfoVO.filePid = fileInfo.getFilePid();
         fileInfoVO.fileSize = fileInfo.getFileSize();
         fileInfoVO.fileName = fileInfo.getFileName();
         fileInfoVO.fileCover = fileInfo.getFileCover();
-        fileInfoVO.createTime = fileInfo.getCreateTime();
-        fileInfoVO.lastUpdateTime = fileInfo.getLastUpdateTime();
+        fileInfoVO.createTime = simpleDateFormat.format(fileInfo.getCreateTime());
+        fileInfoVO.lastUpdateTime = simpleDateFormat.format(fileInfo.getLastUpdateTime());
         fileInfoVO.folderType = fileInfo.getFolderType();
         fileInfoVO.fileType = fileInfo.getFileType();
         fileInfoVO.status = fileInfo.getStatus();

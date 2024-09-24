@@ -2,6 +2,7 @@ package com.xxyy.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.xxyy.entity.UserInfo;
+import org.apache.ibatis.annotations.Param;
 
 /**
  * @author xy
@@ -9,4 +10,7 @@ import com.xxyy.entity.UserInfo;
  */
 
 public interface UserInfoMapper extends BaseMapper<UserInfo> {
+
+    void UpdateUserSpace(@Param(value = "userId") String userId,@Param(value = "useSpace") Long useSpace,@Param(value = "totalSpace") Long totalSpace);
+
 }

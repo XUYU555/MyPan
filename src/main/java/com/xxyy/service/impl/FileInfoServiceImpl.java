@@ -8,22 +8,31 @@ import com.xxyy.dto.*;
 import com.xxyy.entity.FileInfo;
 import com.xxyy.entity.enums.*;
 import com.xxyy.mapper.FileInfoMapper;
+import com.xxyy.mapper.UserInfoMapper;
 import com.xxyy.service.IFileInfoService;
 import com.xxyy.utils.CodeConstants;
 import com.xxyy.utils.RedisConstants;
 import com.xxyy.utils.StringTools;
 import com.xxyy.utils.common.AppException;
+import org.apache.commons.io.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import javax.annotation.Resource;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -42,6 +51,14 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     @Autowired
     StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    UserInfoMapper userInfoMapper;
+
+    // 注入本身, 产生了循环依赖, 使用懒加载
+    @Autowired
+    @Lazy
+    FileInfoServiceImpl infoService;
+
     @Override
     public PagingQueryVO pageQueryFile(FileQueryDTO fileQueryDTO, String token) {
         long pageNo = "".equals(fileQueryDTO.getPageNo())? 1 : Long.parseLong(fileQueryDTO.getPageNo());
@@ -56,7 +73,9 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         // 添加查询条件
         QueryWrapper<FileInfo> fileQueryWrapper = new QueryWrapper<>();
         fileQueryWrapper.eq("user_id", userId);
-        fileQueryWrapper.eq("file_category", categoryEnum.getCode());
+        if (categoryEnum.getCode() != 0) {
+            fileQueryWrapper.eq("file_category", categoryEnum.getCode());
+        }
         if (!"0".equals(fileQueryDTO.getFilePid())) {
             fileQueryWrapper.eq("file_pid", fileQueryDTO.getFilePid());
         }
@@ -74,55 +93,57 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         if (StringTools.isEmpty(upLoadFileDTO.getFileId())) {
             upLoadFileDTO.setFileId(StringTools.getRandomString(CodeConstants.LENGTH_10));
         }
-        UploadFileVO uploadFileVO = new UploadFileVO();
-        uploadFileVO.setFileId(upLoadFileDTO.getFileId());
-        // 获取当前时间
-        Date curDate = new Date();
-        // 获得用户使用空间
-        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
-        UserSpaceVO userSpaceVO = JSON.parseObject(stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId), UserSpaceVO.class);
-        if (0 == upLoadFileDTO.getChunkIndex()) {
-            // 如果分片索引等于0， 则是第一次传输，根据MD5值查询数据库中是否有文件
-            QueryWrapper<FileInfo> fileQueryWrapper = new QueryWrapper<>();
-            fileQueryWrapper.eq("file_md5", upLoadFileDTO.getFileMd5());
-            fileQueryWrapper.eq("status", FileStatusEnums.USING.getCode());
-            Page<FileInfo> simplePage = new Page<>(0, 1);
-            List<FileInfo> records = page(simplePage, fileQueryWrapper).getRecords();
-            // 如果有数据则实现  秒传
-            if (!records.isEmpty()) {
-                FileInfo dbFileInfo = records.get(0);
-                if (dbFileInfo.getFileSize() + userSpaceVO.getUseSpace() > userSpaceVO.getTotalSpace()) {
-                    throw new AppException(ResponseCodeEnums.CODE_904);
-                }
-                // 复制数据库数据
-                dbFileInfo.setFileId(upLoadFileDTO.getFileId());
-                dbFileInfo.setFilePid(upLoadFileDTO.getFilePid());
-                dbFileInfo.setFileMd5(upLoadFileDTO.getFileMd5());
-                dbFileInfo.setUserId(userId);
-                dbFileInfo.setCreateTime(curDate);
-                dbFileInfo.setLastUpdateTime(curDate);
-                dbFileInfo.setStatus(FileStatusEnums.USING.getCode());
-                dbFileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
-                dbFileInfo.setFileName(fileRename(dbFileInfo.getFilePid(), dbFileInfo.getUserId(), dbFileInfo.getFileName()));
-                uploadFileVO.setStatus(UploadStatusEnums.UPLOAD_SECONDS.getCode());
-                // 保存到数据库中
-                save(dbFileInfo);
-                // 更新用户使用空间
-                UserSpaceVO userSpace = updateUserSpace(userId, userSpaceVO.getUseSpace(), null);
-                String jsonString = JSON.toJSONString(userSpace);
-                stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, jsonString);
-                return uploadFileVO;
-            }
-        }
+        boolean uploadSuccess = true;
+        String path = null;
         try {
+            UploadFileVO uploadFileVO = new UploadFileVO();
+            uploadFileVO.setFileId(upLoadFileDTO.getFileId());
+            // 获取当前时间
+            Date curDate = new Date();
+            // 获得用户使用空间
+            String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+            UserSpaceVO userSpaceVO = JSON.parseObject(stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId), UserSpaceVO.class);
+            if (0 == upLoadFileDTO.getChunkIndex()) {
+                // 如果分片索引等于0， 则是第一次传输，根据MD5值查询数据库中是否有文件
+                QueryWrapper<FileInfo> fileQueryWrapper = new QueryWrapper<>();
+                fileQueryWrapper.eq("file_md5", upLoadFileDTO.getFileMd5());
+                fileQueryWrapper.eq("status", FileStatusEnums.USING.getCode());
+                Page<FileInfo> simplePage = new Page<>(0, 1);
+                List<FileInfo> records = page(simplePage, fileQueryWrapper).getRecords();
+                // 如果有数据则实现  秒传
+                if (!records.isEmpty()) {
+                    FileInfo dbFileInfo = records.get(0);
+                    if (dbFileInfo.getFileSize() + userSpaceVO.getUseSpace() > userSpaceVO.getTotalSpace()) {
+                        throw new AppException(ResponseCodeEnums.CODE_904);
+                    }
+                    // 复制数据库数据
+                    dbFileInfo.setFileId(upLoadFileDTO.getFileId());
+                    dbFileInfo.setFilePid(upLoadFileDTO.getFilePid());
+                    dbFileInfo.setFileMd5(upLoadFileDTO.getFileMd5());
+                    dbFileInfo.setUserId(userId);
+                    dbFileInfo.setCreateTime(curDate);
+                    dbFileInfo.setLastUpdateTime(curDate);
+                    dbFileInfo.setStatus(FileStatusEnums.USING.getCode());
+                    dbFileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
+                    dbFileInfo.setFileName(fileRename(dbFileInfo.getFilePid(), dbFileInfo.getUserId(), dbFileInfo.getFileName()));
+                    uploadFileVO.setStatus(UploadStatusEnums.UPLOAD_SECONDS.getCode());
+                    // 保存到数据库中
+                    save(dbFileInfo);
+                    // 更新用户使用空间
+                    updateUserSpace(userId, userSpaceVO.getUseSpace(), null);
+                    userInfoMapper.UpdateUserSpace(userId, userSpaceVO.getUseSpace(), null);
+                    return uploadFileVO;
+                }
+            }
+
+            path = projectFile + CodeConstants.TEMP_FILE + userId + "/" + uploadFileVO.getFileId() + "/";
             // 分片传输数据
             // 判断临时数据是否超过剩余空间
-            Long curSize = getCurSize(userId, uploadFileVO.getFileId());
+            long curSize = getCurSize(userId, uploadFileVO.getFileId());
             if (curSize + upLoadFileDTO.getFile().getSize() + userSpaceVO.getUseSpace() > userSpaceVO.getTotalSpace()) {
                 throw new AppException(ResponseCodeEnums.CODE_904);
             }
             // 创建临时数据分片存储目录
-            String path = projectFile + CodeConstants.TEMP_FILE + userId + "/" + uploadFileVO.getFileId() + "/";
             File file = new File(path);
             if (!file.exists()) {
                 file.mkdirs();
@@ -130,17 +151,66 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             // 创建临时文件存储路径, 并写入本地
             Path tempPath = Paths.get(path + upLoadFileDTO.getChunkIndex());
             Files.write(tempPath, upLoadFileDTO.getFile().getBytes());
-            // 存入临时数据到Redis
+            // 存入临时文件的大小到Redis
             stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_FILE_TEMP_SIZE + userId + ":" + uploadFileVO.getFileId(),
                     String.valueOf((curSize + upLoadFileDTO.getFile().getSize())), 1, TimeUnit.HOURS);
             // 判断分片数据传输是否完成
             if (upLoadFileDTO.getChunkIndex() < upLoadFileDTO.getChunks() - 1) {
                 uploadFileVO.setStatus(UploadStatusEnums.UPLOADING.getCode());
+            } else {
+                // 最后一片数据，进行分片合并
+                String fileSuffix = StringTools.getFileSuffix(upLoadFileDTO.getFileName());
+                FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix(fileSuffix);
+                String month = new SimpleDateFormat("YYYYMM").format(curDate);
+                String dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + "." + fileSuffix;
+                // 将FileInfo存入数据库
+                FileInfo fileInfo = new FileInfo();
+                fileInfo.setUserId(userId);
+                fileInfo.setFilePid(upLoadFileDTO.getFilePid());
+                fileInfo.setFileName(upLoadFileDTO.getFileName());
+                fileInfo.setFileMd5(upLoadFileDTO.getFileMd5());
+                fileInfo.setFileId(uploadFileVO.getFileId());
+                fileInfo.setFileType(fileTypeEnums.getType());
+                fileInfo.setCreateTime(curDate);
+                fileInfo.setLastUpdateTime(curDate);
+                fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
+                // 设置文件为转码中，当文件分片合并完毕是修改
+                fileInfo.setStatus(FileStatusEnums.TRANSFER.getCode());
+                fileInfo.setFolderType(FolderTypeEnums.DOCUMENT.getType());
+                fileInfo.setFilePath(dbPath);
+                save(fileInfo);
+                // 更新用户使用空间
+                Long totalUseSize = getCurSize(userId, upLoadFileDTO.getFileId());
+                updateUserSpace(userId, totalUseSize, null);
+                userInfoMapper.UpdateUserSpace(userId, totalUseSize, null);
+                // 设置上传完成
+                uploadFileVO.setStatus(UploadStatusEnums.UPLOAD_FINISH.getCode());
+                // 异步开始合并文件，在当前事务提交之后进行
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        mergeFiles(fileInfo.getFileId(), fileInfo.getUserId());
+                    }
+                });
             }
             return uploadFileVO;
-        } catch (IOException e) {
+        } catch (AppException e) {
+            uploadSuccess = false;
+            log.error("文件上传失败", e);
+            throw e;
+        } catch (Exception e) {
+            uploadSuccess = false;
             log.error("文件上传失败", e);
             throw new AppException("文件上传失败");
+        } finally {
+            // 文件未上传成功，删除临时文件
+            if (!uploadSuccess) {
+                try {
+                    FileUtils.deleteDirectory(new File(path));
+                } catch (IOException e) {
+                    log.error("删除临时文件失败");
+                }
+            }
         }
     }
 
@@ -158,7 +228,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         return fileName;
     }
 
-    private UserSpaceVO updateUserSpace(String userId, Long useSpace, Long totalSpace) {
+    private void updateUserSpace(String userId, Long useSpace, Long totalSpace) {
         UserSpaceVO userSpaceVO = JSON.parseObject(stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId), UserSpaceVO.class);
         // 更新使用空间
         if (totalSpace == null) {
@@ -176,7 +246,8 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             }
             userSpaceVO.setTotalSpace(newTotalSpace);
         }
-        return userSpaceVO;
+        String jsonString = JSON.toJSONString(userSpaceVO);
+        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, jsonString);
     }
 
     private Long getCurSize(String userId, String fileId) {
@@ -185,6 +256,11 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             return Long.valueOf(strSize);
         }
         return 0L;
+    }
+
+    @Async
+    protected void mergeFiles(String fileId, String userId) {
+
     }
 
 }

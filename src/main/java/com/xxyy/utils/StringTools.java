@@ -30,4 +30,9 @@ public class StringTools {
     public static String byMd5(String oString) {
         return isEmpty(oString)? null: DigestUtils.md5Hex(oString);
     }
+
+    public static String getFileSuffix(String fileName) {
+        String[] split = fileName.split("\\.");
+        return split[1];
+    }
 }
