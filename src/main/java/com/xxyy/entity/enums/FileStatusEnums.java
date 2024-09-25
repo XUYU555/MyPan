@@ -5,6 +5,7 @@ import lombok.Getter;
 /**
  * @author xy
  * @date 2024-09-23 20:26
+ * 分片合并状态
  */
 
 @Getter

@@ -24,4 +24,6 @@ public class CodeConstants {
 
     public final static String TEMP_FILE = "file/temp/";
 
+    public final static String FILE = "file/file/";
+
 }

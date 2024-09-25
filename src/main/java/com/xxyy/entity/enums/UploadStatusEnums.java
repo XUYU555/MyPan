@@ -5,6 +5,7 @@ import lombok.Getter;
 /**
  * @author xy
  * @date 2024-09-23 16:00
+ * 上传文件的传输状态
  */
 
 @Getter

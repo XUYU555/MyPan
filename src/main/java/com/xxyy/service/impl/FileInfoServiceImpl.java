@@ -14,6 +14,7 @@ import com.xxyy.utils.CodeConstants;
 import com.xxyy.utils.RedisConstants;
 import com.xxyy.utils.StringTools;
 import com.xxyy.utils.common.AppException;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,9 +26,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+
 import javax.annotation.Resource;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -35,6 +39,7 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -43,6 +48,7 @@ import java.util.concurrent.TimeUnit;
  */
 
 @Service
+@Slf4j
 public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> implements IFileInfoService {
 
     @Value("${project.folder}")
@@ -189,7 +195,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        mergeFiles(fileInfo.getFileId(), fileInfo.getUserId());
+                        infoService.mergeFiles(fileInfo.getFileId(), fileInfo.getUserId());
                     }
                 });
             }
@@ -247,7 +253,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             userSpaceVO.setTotalSpace(newTotalSpace);
         }
         String jsonString = JSON.toJSONString(userSpaceVO);
-        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, jsonString);
+        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, jsonString, 1, TimeUnit.HOURS);
     }
 
     private Long getCurSize(String userId, String fileId) {
@@ -260,7 +266,71 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
 
     @Async
     protected void mergeFiles(String fileId, String userId) {
+        boolean mergeFilesSuccess = true;
+        String targetPath = null;
+        String sourcePath = null;
+        String cover = null;
+        FileInfo fileInfo = null;
+        try {
+            fileInfo = getOne(new QueryWrapper<FileInfo>().eq("file_id", fileId).eq("user_id", userId));
+            if (fileInfo == null || !Objects.equals(fileInfo.getStatus(), FileStatusEnums.TRANSFER.getCode())) {
+                return;
+            }
+            targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("/")[0];
+            File targetFile = new File(targetPath);
+            if (!targetFile.exists()) {
+                targetFile.mkdirs();
+            }
+            sourcePath = projectFile + CodeConstants.TEMP_FILE + userId + "/" + fileId + "/";
+            // 合并分片文件
+            union(targetFile, sourcePath, fileInfo.getFilePath().split("/")[1], true);
+            // TODO: 2024/9/24 视频切割
+        } catch (Exception e) {
+            mergeFilesSuccess = false;
+            log.error("文件转码失败,文件Id:{},用户Id:{}", fileId,  userId, e);
+        } finally {
+            //  修改FileInfo状态
+            if (fileInfo != null) {
+                fileInfo.setFileSize(new File(targetPath + fileInfo.getFilePath().split("/")[1]).length());
+                fileInfo.setFileCover(cover);
+                fileInfo.setStatus(mergeFilesSuccess?FileStatusEnums.USING.getCode(): FileStatusEnums.TRANSFER_FAIL.getCode());
+                fileInfo.setFileId(fileId);
+                fileInfo.setUserId(userId);
+                updateById(fileInfo);
+            }
+        }
+    }
 
+    private void union(File targetFile, String sourcePath, String realFileName, boolean delSource) {
+        //  targetFile.getPath() + "/" + realFileName  目标文件地址
+        try (RandomAccessFile rwFile = new RandomAccessFile(targetFile.getPath() + "/" + realFileName, "rw")) {
+            File sourceFile = new File(sourcePath);
+            if (!sourceFile.exists()) {
+                throw new AppException("文件目录不存在:" + sourceFile.getPath());
+            }
+            int len = 0;
+            byte[] bytes = new byte[1024 * 5];
+            for (int i = 0; i < sourceFile.listFiles().length; i++) {
+                String source = sourcePath + i;
+                try (RandomAccessFile rFile = new RandomAccessFile(source, "r")) {
+                    while ((len = rFile.read(bytes)) != -1) {
+                        rwFile.write(bytes, 0, len);
+                    }
+                }
+            }
+        } catch (FileNotFoundException e) {
+            throw new AppException("文件没有找到: " + targetFile.getPath(), e );
+        } catch (IOException e) {
+            throw new AppException("文件合并失败", e);
+        } finally {
+            if (delSource) {
+                try {
+                    FileUtils.deleteDirectory(new File(sourcePath));
+                } catch (IOException e) {
+                   log.error("删除临时文件失败，文件路径:{}", sourcePath, e);
+                }
+            }
+        }
     }
 
 }

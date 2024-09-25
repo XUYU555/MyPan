@@ -5,6 +5,7 @@ import lombok.Getter;
 /**
  * @author xy
  * @date 2024-09-19 17:05
+ * 用户账号使用状态
  */
 
 @Getter

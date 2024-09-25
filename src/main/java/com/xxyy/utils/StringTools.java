@@ -33,6 +33,7 @@ public class StringTools {
 
     public static String getFileSuffix(String fileName) {
         String[] split = fileName.split("\\.");
-        return split[1];
+        // 防止有多个文件名中有多的“.“ 只取最后一个
+        return split[split.length-1];
     }
 }

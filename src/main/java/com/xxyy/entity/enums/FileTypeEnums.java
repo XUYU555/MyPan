@@ -5,6 +5,7 @@ import org.apache.commons.lang3.ArrayUtils;
 /**
  * @author xy
  * @date 2024-09-24 14:45
+ * 文件分类
  */
 public enum FileTypeEnums {
     //1:视频 2:音频  3:图片 4:pdf 5:word 6:excel 7:txt 8:code 9:zip 10:其他文件
