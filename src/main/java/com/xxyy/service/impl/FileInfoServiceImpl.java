@@ -147,6 +147,9 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             // 判断临时数据是否超过剩余空间
             long curSize = getCurSize(userId, uploadFileVO.getFileId());
             if (curSize + upLoadFileDTO.getFile().getSize() + userSpaceVO.getUseSpace() > userSpaceVO.getTotalSpace()) {
+                // TODO: 2024/9/25 断点续传 删除临时文件大小问题
+                // 删除临时文件大侠redis数据
+                stringRedisTemplate.delete(RedisConstants.MYPAN_FILE_TEMP_SIZE + userId + ":" + uploadFileVO.getFileId());
                 throw new AppException(ResponseCodeEnums.CODE_904);
             }
             // 创建临时数据分片存储目录
@@ -291,7 +294,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         } finally {
             //  修改FileInfo状态
             if (fileInfo != null) {
-                fileInfo.setFileSize(new File(targetPath + fileInfo.getFilePath().split("/")[1]).length());
+                fileInfo.setFileSize(new File(targetPath + "/" + fileInfo.getFilePath().split("/")[1]).length());
                 fileInfo.setFileCover(cover);
                 fileInfo.setStatus(mergeFilesSuccess?FileStatusEnums.USING.getCode(): FileStatusEnums.TRANSFER_FAIL.getCode());
                 fileInfo.setFileId(fileId);

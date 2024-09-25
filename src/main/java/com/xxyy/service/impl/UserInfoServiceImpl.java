@@ -200,8 +200,17 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
         Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token);
         LoginInfoVO loginInfoVO = BeanUtil.fillBeanWithMap(entries, new LoginInfoVO(), true);
         String json = stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + loginInfoVO.getUserId());
-        UserSpaceVO userSpaceVO = JSON.parseObject(json, UserSpaceVO.class);
+        if (!StringTools.isEmpty(json)) {
+            Result.data(JSON.parseObject(json, UserSpaceVO.class));
+        }
         // 返回用户空间
+        // TODO: 2024/9/25 返回用户空间使用情况可能有问题
+        UserInfo user = getOne(new QueryWrapper<UserInfo>().eq("user_id", loginInfoVO.getUserId()));
+        UserSpaceVO userSpaceVO = new UserSpaceVO();
+        userSpaceVO.setUseSpace(user.getUseSpace());
+        userSpaceVO.setTotalSpace(user.getTotalSpace());
+        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + loginInfoVO.getUserId(),
+                JSON.toJSONString(userSpaceVO), 1, TimeUnit.HOURS);
         return Result.data(userSpaceVO);
 
     }
