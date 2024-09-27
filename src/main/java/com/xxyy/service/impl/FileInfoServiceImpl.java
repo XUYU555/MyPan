@@ -11,6 +11,7 @@ import com.xxyy.mapper.FileInfoMapper;
 import com.xxyy.mapper.UserInfoMapper;
 import com.xxyy.service.IFileInfoService;
 import com.xxyy.utils.CodeConstants;
+import com.xxyy.utils.ProcessUtils;
 import com.xxyy.utils.RedisConstants;
 import com.xxyy.utils.StringTools;
 import com.xxyy.utils.common.AppException;
@@ -35,11 +36,8 @@ import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -169,7 +167,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             } else {
                 // 最后一片数据，进行分片合并
                 String fileSuffix = StringTools.getFileSuffix(upLoadFileDTO.getFileName());
-                FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix(fileSuffix);
+                FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
                 String month = new SimpleDateFormat("YYYYMM").format(curDate);
                 String dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + "." + fileSuffix;
                 // 将FileInfo存入数据库
@@ -232,7 +230,8 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         int count = count(fileQueryWrapper);
         if (count > 0) {
             String[] split = fileName.split("\\.");
-            return split[0] + "(" + count + ")" + "." + split[1];
+            int endIndex = split[split.length - 1].length() + 1;
+            return fileName.substring(0, fileName.length() - endIndex) + "(" + count + ")." + split[split.length - 1];
         }
         return fileName;
     }
@@ -271,7 +270,6 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     protected void mergeFiles(String fileId, String userId) {
         boolean mergeFilesSuccess = true;
         String targetPath = null;
-        String sourcePath = null;
         String cover = null;
         FileInfo fileInfo = null;
         try {
@@ -284,10 +282,17 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             if (!targetFile.exists()) {
                 targetFile.mkdirs();
             }
-            sourcePath = projectFile + CodeConstants.TEMP_FILE + userId + "/" + fileId + "/";
+            String sourcePath = projectFile + CodeConstants.TEMP_FILE + userId + "/" + fileId + "/";
             // 合并分片文件
             union(targetFile, sourcePath, fileInfo.getFilePath().split("/")[1], true);
             // TODO: 2024/9/24 视频切割
+            if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.VIDEO.getType())) {
+                // 如果是视频文件，需要视频切割
+                videoCutting(fileId, userId);
+                // 生成视频封面缩略图
+            } else if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.IMAGE.getType())){
+                // 是图片，则添加图片缩略图
+            }
         } catch (Exception e) {
             mergeFilesSuccess = false;
             log.error("文件转码失败,文件Id:{},用户Id:{}", fileId,  userId, e);
@@ -302,6 +307,31 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 updateById(fileInfo);
             }
         }
+    }
+
+    private void videoCutting(String fileId, String userId) {
+        FileInfo fileInfo = getOne(new QueryWrapper<FileInfo>().eq("file_id", fileId).eq("user_id", userId));
+        String sourcePath = projectFile + CodeConstants.FILE + fileInfo.getFilePath();
+        // ts文件存放路径
+        String tsPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0];
+        File tsFile = new File(tsPath);
+        if (!tsFile.exists()) {
+            tsFile.mkdirs();
+        }
+        // 将mp4 转化为 ts视频文件 "ffmpeg -y -i %s -vcodec copy -acodec copy -bsf:v h264_mp4toannexb %s"
+        String tsPathName = tsPath + "/" + CodeConstants.TS_NAME;
+        List<String> tsList = Arrays.asList
+                ("ffmpeg", "-y", "-i", sourcePath, "-vcodec", "copy", "-acodec", "copy", "-bsf:v", "h264_mp4toannexb", tsPathName);
+        // 将ts视频文件，切割成30秒一个的切片  ffmpeg -i %s -c copy -map 0 -f segment -segment-list %s -segment_time 30 %s/%s-%%4d.ts
+        final String CMD_CUT_TS = "%s"+ File.separator + "%s-%%4d.ts";
+        String cutName = String.format(CMD_CUT_TS, tsPath, fileId);
+        String m3u8Path = tsPath + File.separator + CodeConstants.M3U8_NAME;
+        List<String> tsCutList = Arrays.asList(
+                "ffmpeg", "-i", tsPathName, "-c", "copy", "-map", "0", "-f", "segment", "-segment_list", m3u8Path, "-segment_time", "30", cutName);
+        ProcessUtils.executeCommand(tsList);
+        ProcessUtils.executeCommand(tsCutList);
+        // 删除index.ts文件
+        new File(tsPathName).delete();
     }
 
     private void union(File targetFile, String sourcePath, String realFileName, boolean delSource) {

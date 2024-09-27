@@ -201,7 +201,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
         LoginInfoVO loginInfoVO = BeanUtil.fillBeanWithMap(entries, new LoginInfoVO(), true);
         String json = stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + loginInfoVO.getUserId());
         if (!StringTools.isEmpty(json)) {
-            Result.data(JSON.parseObject(json, UserSpaceVO.class));
+            return Result.data(JSON.parseObject(json, UserSpaceVO.class));
         }
         // 返回用户空间
         // TODO: 2024/9/25 返回用户空间使用情况可能有问题

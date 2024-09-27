@@ -135,7 +135,7 @@ public class UserInfoController {
     }
 
     @GetMapping(value = "/getAvatar/{userId}")
-    //@GlobalInterceptor(checkParams = true)
+    @GlobalInterceptor(checkParams = true, checkLoing = false)
     public void getAvatar(@PathVariable(value = "userId") @VerifyParams(required = true) String userId,
                                HttpServletResponse response) {
         userService.getUserAvatar(userId, response);
