@@ -168,7 +168,10 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 String fileSuffix = StringTools.getFileSuffix(upLoadFileDTO.getFileName());
                 FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
                 String month = new SimpleDateFormat("YYYYMM").format(curDate);
-                String dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + CodeConstants.IMAGE_FILE_SUFFIX;
+                String dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + "." + fileSuffix;
+                if ("图片".equals(fileTypeEnums.getDesc())) {
+                    dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + CodeConstants.IMAGE_FILE_SUFFIX;
+                }
                 // 将FileInfo存入数据库
                 FileInfo fileInfo = new FileInfo();
                 fileInfo.setUserId(userId);
@@ -235,6 +238,51 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         }
         response.setContentType("image/jpeg");
         response.setHeader("Cache-Control", "max-age=2592000");
+        try (FileInputStream inputStream = new FileInputStream(file);
+             ServletOutputStream outputStream = response.getOutputStream()){
+            int len = 0;
+            byte[] bytes = new byte[1024];
+            while((len = inputStream.read(bytes)) != -1) {
+                outputStream.write(bytes, 0, len);
+            }
+            // 确保刷新并关闭
+            outputStream.flush();
+        } catch (IOException e) {
+            throw new AppException("写入或读取文件失败");
+        }
+    }
+
+
+    /**
+     * fileId 有两种情况
+     * 如果为 XXXXX 则是文件id
+     * XXXXXXX-000X.ts 则是ts文件
+     * @param response
+     * @param fileId
+     * @param token
+     */
+    // TODO: 2024/9/28 可能存在bug
+    @Override
+    public void getVideoInfo(HttpServletResponse response, String fileId, String token) {
+        String targetPath = null;
+        if (fileId.contains("../") || fileId.contains("..\\")) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        FileInfo fileInfo = infoService.getOne(new QueryWrapper<FileInfo>().eq("file_id", fileId).eq("user_id", userId));
+        if (fileInfo == null) {
+            // 请求的是ts文件
+            String realFileId = fileId.split("-")[0];
+            fileInfo = infoService.getOne(new QueryWrapper<FileInfo>().eq("file_id", realFileId).eq("user_id", userId));
+            targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0] + File.separator + fileId;
+        } else {
+            targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0] + File.separator + CodeConstants.M3U8_NAME;
+        }
+        File file = new File(targetPath);
+        if (!file.exists()) {
+            return;
+        }
         try (FileInputStream inputStream = new FileInputStream(file);
              ServletOutputStream outputStream = response.getOutputStream()){
             int len = 0;
@@ -368,8 +416,9 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         String cmdCutTs = "%s"+ File.separator + "%s-%%4d.ts";
         String cutName = String.format(cmdCutTs, tsPath, fileId);
         String m3u8Path = tsPath + File.separator + CodeConstants.M3U8_NAME;
+        // TODO: 2024/9/28 视频切割30秒为一个ts会出现无法加载0001bug
         List<String> tsCutList = Arrays.asList(
-                "ffmpeg", "-i", tsPathName, "-c", "copy", "-map", "0", "-f", "segment", "-segment_list", m3u8Path, "-segment_time", "30", cutName);
+                "ffmpeg", "-i", tsPathName, "-c", "copy", "-map", "0", "-f", "segment", "-segment_list", m3u8Path, "-segment_time", "20", cutName);
         ProcessUtils.executeCommand(tsList);
         ProcessUtils.executeCommand(tsCutList);
         // 删除index.ts文件

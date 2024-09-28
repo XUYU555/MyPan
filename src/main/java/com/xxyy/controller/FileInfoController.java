@@ -47,4 +47,11 @@ public class FileInfoController {
         fileService.getImage(response, folder, fileName);
     }
 
+    @GetMapping(value = "/ts/getVideoInfo/{fileId}")
+    @GlobalInterceptor
+    public void getVideoInfo(HttpServletResponse response, @PathVariable(name = "fileId")String fileId, HttpServletRequest request) {
+        String token = request.getHeader("authorization");
+        fileService.getVideoInfo(response, fileId, token);
+    }
+
 }
