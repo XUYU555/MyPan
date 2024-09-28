@@ -168,7 +168,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 String fileSuffix = StringTools.getFileSuffix(upLoadFileDTO.getFileName());
                 FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
                 String month = new SimpleDateFormat("YYYYMM").format(curDate);
-                String dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + "." + fileSuffix;
+                String dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + CodeConstants.IMAGE_FILE_SUFFIX;
                 // 将FileInfo存入数据库
                 FileInfo fileInfo = new FileInfo();
                 fileInfo.setUserId(userId);
@@ -183,6 +183,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 // 设置文件为转码中，当文件分片合并完毕是修改
                 fileInfo.setStatus(FileStatusEnums.TRANSFER.getCode());
                 fileInfo.setFolderType(FolderTypeEnums.DOCUMENT.getType());
+                fileInfo.setFileCategory(fileTypeEnums.getCategory().getCode());
                 fileInfo.setFilePath(dbPath);
                 save(fileInfo);
                 // 更新用户使用空间
@@ -233,6 +234,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             throw new AppException("文件不存在");
         }
         response.setContentType("image/jpeg");
+        response.setHeader("Cache-Control", "max-age=2592000");
         try (FileInputStream inputStream = new FileInputStream(file);
              ServletOutputStream outputStream = response.getOutputStream()){
             int len = 0;

@@ -34,6 +34,8 @@ public class FileInfoVO {
 
     private int status;
 
+    private int fileCategory;
+
     public static FileInfoVO of(FileInfo fileInfo) {
         SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         FileInfoVO fileInfoVO = new FileInfoVO();
@@ -47,6 +49,7 @@ public class FileInfoVO {
         fileInfoVO.folderType = fileInfo.getFolderType();
         fileInfoVO.fileType = fileInfo.getFileType();
         fileInfoVO.status = fileInfo.getStatus();
+        fileInfoVO.fileCategory = fileInfo.getFileCategory();
         return fileInfoVO;
     }
 }

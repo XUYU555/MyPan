@@ -11,15 +11,15 @@ import lombok.Getter;
 @Getter
 public enum FileCategoryEnums {
 
-    ALL("all", 0L),
-    OTHERS("others", 5L),
-    MUSIC("music", 2L),
-    VIDEO("video", 1L),
-    IMAGE("image", 3L),
-    DOC("doc", 4L)
+    ALL("all", 0),
+    OTHERS("others", 5),
+    MUSIC("music", 2),
+    VIDEO("video", 1),
+    IMAGE("image", 3),
+    DOC("doc", 4)
             ;
 
-    FileCategoryEnums(String category, Long code) {
+    FileCategoryEnums(String category, Integer code) {
         this.category = category;
         this.code = code;
     }
@@ -35,6 +35,6 @@ public enum FileCategoryEnums {
 
     private final String category;
 
-    private final Long code;
+    private final Integer code;
 
 }
