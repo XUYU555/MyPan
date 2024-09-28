@@ -176,6 +176,7 @@ public class UserInfoController {
     }
 
     @PostMapping(value = "/getUserInfo")
+    @GlobalInterceptor
     public Result<LoginInfoVO> getUserInfo(HttpServletRequest request) {
         String token = request.getHeader("authorization");
         Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token);

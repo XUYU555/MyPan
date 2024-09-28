@@ -8,12 +8,10 @@ import com.xxyy.dto.UploadFileVO;
 import com.xxyy.service.IFileInfoService;
 import com.xxyy.utils.common.Result;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * @author xy
@@ -36,11 +34,17 @@ public class FileInfoController {
     }
 
     @PostMapping(value = "/uploadFile")
-    // @GlobalInterceptor(checkParams = true)
+    @GlobalInterceptor(checkParams = true)
     public Result<UploadFileVO> upLoadFile(@ModelAttribute UploadFileDTO upLoadFileDTO, HttpServletRequest request) {
         String token = request.getHeader("authorization");
         UploadFileVO upLoadFileVO = fileService.uploadFile(upLoadFileDTO, token);
         return Result.data(upLoadFileVO);
+    }
+
+    @GetMapping(value = "/getImage/{imageFolder}/{imageName}")
+    public void getImage(HttpServletResponse response, @PathVariable(name = "imageFolder")String folder,
+                         @PathVariable(name = "imageName")String fileName) {
+        fileService.getImage(response, folder, fileName);
     }
 
 }

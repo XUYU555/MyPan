@@ -29,4 +29,6 @@ public class CodeConstants {
     public final static String TS_NAME = "index.ts";
 
     public final static String M3U8_NAME = "index.m3u8";
+
+    public final static String RESOLUTION_150 = "150x150";
 }

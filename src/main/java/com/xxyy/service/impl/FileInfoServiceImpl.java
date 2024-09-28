@@ -29,10 +29,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 
 import javax.annotation.Resource;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import javax.servlet.ServletOutputStream;
+import javax.servlet.http.HttpServletResponse;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -53,10 +52,10 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     private String projectFile;
 
     @Autowired
-    StringRedisTemplate stringRedisTemplate;
+    private StringRedisTemplate stringRedisTemplate;
 
     @Resource
-    UserInfoMapper userInfoMapper;
+    private UserInfoMapper userInfoMapper;
 
     // 注入本身, 产生了循环依赖, 使用懒加载
     @Autowired
@@ -135,7 +134,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                     save(dbFileInfo);
                     // 更新用户使用空间
                     updateUserSpace(userId, userSpaceVO.getUseSpace(), null);
-                    userInfoMapper.UpdateUserSpace(userId, userSpaceVO.getUseSpace(), null);
+                    userInfoMapper.updateUserSpace(userId, userSpaceVO.getUseSpace(), null);
                     return uploadFileVO;
                 }
             }
@@ -189,7 +188,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 // 更新用户使用空间
                 Long totalUseSize = getCurSize(userId, upLoadFileDTO.getFileId());
                 updateUserSpace(userId, totalUseSize, null);
-                userInfoMapper.UpdateUserSpace(userId, totalUseSize, null);
+                userInfoMapper.updateUserSpace(userId, totalUseSize, null);
                 // 设置上传完成
                 uploadFileVO.setStatus(UploadStatusEnums.UPLOAD_FINISH.getCode());
                 // 异步开始合并文件，在当前事务提交之后进行
@@ -199,6 +198,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                         infoService.mergeFiles(fileInfo.getFileId(), fileInfo.getUserId());
                     }
                 });
+
             }
             return uploadFileVO;
         } catch (AppException e) {
@@ -218,6 +218,32 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                     log.error("删除临时文件失败");
                 }
             }
+        }
+    }
+
+    @Override
+    public void getImage(HttpServletResponse response, String folder, String fileName) {
+        String targetPath = projectFile + CodeConstants.FILE + folder + "/" + fileName;
+        if (targetPath.contains("../") || targetPath.contains("..\\")) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+        File file = new File(targetPath);
+        if (!file.exists()) {
+            throw new AppException("文件不存在");
+        }
+        response.setContentType("image/jpeg");
+        try (FileInputStream inputStream = new FileInputStream(file);
+             ServletOutputStream outputStream = response.getOutputStream()){
+            int len = 0;
+            byte[] bytes = new byte[1024];
+            while((len = inputStream.read(bytes)) != -1) {
+                outputStream.write(bytes, 0, len);
+            }
+            // 确保刷新并关闭
+            outputStream.flush();
+        } catch (IOException e) {
+            throw new AppException("写入或读取文件失败");
         }
     }
 
@@ -290,8 +316,10 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 // 如果是视频文件，需要视频切割
                 videoCutting(fileId, userId);
                 // 生成视频封面缩略图
+                cover = coverThumbnail(targetPath, fileId, userId);
             } else if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.IMAGE.getType())){
-                // 是图片，则添加图片缩略图
+                //  todo 是图片，则添加图片缩略图
+                cover = coverThumbnail(targetPath, fileId, userId);
             }
         } catch (Exception e) {
             mergeFilesSuccess = false;
@@ -309,6 +337,18 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         }
     }
 
+    private String coverThumbnail(String filePath, String fileId, String userId) {
+        //  ffmpeg -i test.asf -y -f image2 -t 0.001 -s 352x240 a.jpg
+        FileInfo fileInfo = getOne(new QueryWrapper<FileInfo>().eq("file_id", fileId).eq("user_id", userId));
+        String sourcePath = filePath + "/" + fileInfo.getFilePath().split("/")[1];
+        String targetPath = fileInfo.getFilePath().split("\\.")[0] + "_" + CodeConstants.IMAGE_FILE_SUFFIX;
+        String targetFileName = filePath + "/" + targetPath.split("/")[1];
+        List<String> command = Arrays.asList("ffmpeg", "-i", sourcePath, "-y", "-f", "image2", "-t", "0.001", "-s",
+                CodeConstants.RESOLUTION_150, targetFileName);
+        ProcessUtils.executeCommand(command);
+        return targetPath;
+    }
+
     private void videoCutting(String fileId, String userId) {
         FileInfo fileInfo = getOne(new QueryWrapper<FileInfo>().eq("file_id", fileId).eq("user_id", userId));
         String sourcePath = projectFile + CodeConstants.FILE + fileInfo.getFilePath();
@@ -323,8 +363,8 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         List<String> tsList = Arrays.asList
                 ("ffmpeg", "-y", "-i", sourcePath, "-vcodec", "copy", "-acodec", "copy", "-bsf:v", "h264_mp4toannexb", tsPathName);
         // 将ts视频文件，切割成30秒一个的切片  ffmpeg -i %s -c copy -map 0 -f segment -segment-list %s -segment_time 30 %s/%s-%%4d.ts
-        final String CMD_CUT_TS = "%s"+ File.separator + "%s-%%4d.ts";
-        String cutName = String.format(CMD_CUT_TS, tsPath, fileId);
+        String cmdCutTs = "%s"+ File.separator + "%s-%%4d.ts";
+        String cutName = String.format(cmdCutTs, tsPath, fileId);
         String m3u8Path = tsPath + File.separator + CodeConstants.M3U8_NAME;
         List<String> tsCutList = Arrays.asList(
                 "ffmpeg", "-i", tsPathName, "-c", "copy", "-map", "0", "-f", "segment", "-segment_list", m3u8Path, "-segment_time", "30", cutName);

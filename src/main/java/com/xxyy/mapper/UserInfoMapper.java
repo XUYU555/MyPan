@@ -11,6 +11,6 @@ import org.apache.ibatis.annotations.Param;
 
 public interface UserInfoMapper extends BaseMapper<UserInfo> {
 
-    void UpdateUserSpace(@Param(value = "userId") String userId,@Param(value = "useSpace") Long useSpace,@Param(value = "totalSpace") Long totalSpace);
+    void updateUserSpace(@Param(value = "userId") String userId, @Param(value = "useSpace") Long useSpace, @Param(value = "totalSpace") Long totalSpace);
 
 }
