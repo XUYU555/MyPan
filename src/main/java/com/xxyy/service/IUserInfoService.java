@@ -1,10 +1,10 @@
 package com.xxyy.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.xxyy.dto.EmailLoginDTO;
-import com.xxyy.dto.EmailRegisterDTO;
-import com.xxyy.dto.LoginInfoVO;
-import com.xxyy.dto.UserSpaceVO;
+import com.xxyy.entity.dto.EmailLoginDTO;
+import com.xxyy.entity.dto.EmailRegisterDTO;
+import com.xxyy.entity.vo.LoginInfoVO;
+import com.xxyy.entity.vo.UserSpaceVO;
 import com.xxyy.entity.UserInfo;
 import com.xxyy.utils.common.Result;
 import org.springframework.web.multipart.MultipartFile;

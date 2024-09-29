@@ -1,4 +1,4 @@
-package com.xxyy.dto;
+package com.xxyy.entity.vo;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

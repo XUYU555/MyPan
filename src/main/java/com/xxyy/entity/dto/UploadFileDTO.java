@@ -1,4 +1,4 @@
-package com.xxyy.dto;
+package com.xxyy.entity.dto;
 
 import com.xxyy.annotation.VerifyParams;
 import lombok.Data;

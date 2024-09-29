@@ -1,4 +1,4 @@
-package com.xxyy.dto;
+package com.xxyy.entity.vo;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xxyy.entity.FileInfo;

@@ -1,13 +1,15 @@
 package com.xxyy.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.xxyy.dto.FileQueryDTO;
-import com.xxyy.dto.PagingQueryVO;
-import com.xxyy.dto.UploadFileDTO;
-import com.xxyy.dto.UploadFileVO;
 import com.xxyy.entity.FileInfo;
+import com.xxyy.entity.dto.*;
+import com.xxyy.entity.vo.FileInfoVO;
+import com.xxyy.entity.vo.FolderInfoVO;
+import com.xxyy.entity.vo.PagingQueryVO;
+import com.xxyy.entity.vo.UploadFileVO;
 
 import javax.servlet.http.HttpServletResponse;
+import java.util.List;
 
 /**
  * @author xy
@@ -21,5 +23,9 @@ public interface IFileInfoService extends IService<FileInfo> {
 
     void getImage(HttpServletResponse response, String folder, String fileName);
 
-    void getVideoInfo(HttpServletResponse response, String fileId, String token);
+    void getFile(HttpServletResponse response, String fileId, String token);
+
+    FileInfoVO createFolder(String filePid, String folderName, String token);
+
+    List<FolderInfoVO> getFolderInfo(String path, String token);
 }
