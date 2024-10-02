@@ -28,4 +28,17 @@ public interface IFileInfoService extends IService<FileInfo> {
     FileInfoVO createFolder(String filePid, String folderName, String token);
 
     List<FolderInfoVO> getFolderInfo(String path, String token);
+
+    FileInfoVO fileRename(String token, String fileId, String fileName);
+
+    List<FileInfoVO> getAllFolder(String token, String filePid, String currentFileIds);
+
+    void changeFileFolder(String token, String fileIds, String filePid);
+
+    String createDownloadUrl(String fileId, String token);
+
+    void downloadFile(String code, HttpServletResponse response);
+
+    void removeFile2RecycleBatch(String fileIds, String token);
+
 }

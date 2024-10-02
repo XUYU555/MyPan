@@ -4,9 +4,10 @@ import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xxyy.dto.*;
 import com.xxyy.entity.FileInfo;
+import com.xxyy.entity.dto.*;
 import com.xxyy.entity.enums.*;
+import com.xxyy.entity.vo.*;
 import com.xxyy.mapper.FileInfoMapper;
 import com.xxyy.mapper.UserInfoMapper;
 import com.xxyy.service.IFileInfoService;
@@ -17,6 +18,7 @@ import com.xxyy.utils.StringTools;
 import com.xxyy.utils.common.AppException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
@@ -32,12 +34,15 @@ import javax.annotation.Resource;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
+import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * @author xy
@@ -76,11 +81,10 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         // 添加查询条件
         QueryWrapper<FileInfo> fileQueryWrapper = new QueryWrapper<>();
         fileQueryWrapper.eq("user_id", userId);
+        fileQueryWrapper.eq("file_pid", fileQueryDTO.getFilePid());
+        fileQueryWrapper.eq("del_flag", FileDelFlagEnums.NORMAL.getCode());
         if (categoryEnum.getCode() != 0) {
             fileQueryWrapper.eq("file_category", categoryEnum.getCode());
-        }
-        if (!"0".equals(fileQueryDTO.getFilePid())) {
-            fileQueryWrapper.eq("file_pid", fileQueryDTO.getFilePid());
         }
         if (!"".equals(fileQueryDTO.getFileNameFuzzy())) {
             fileQueryWrapper.eq("file_name", fileQueryDTO.getFileNameFuzzy());
@@ -128,7 +132,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                     dbFileInfo.setLastUpdateTime(curDate);
                     dbFileInfo.setStatus(FileStatusEnums.USING.getCode());
                     dbFileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
-                    dbFileInfo.setFileName(fileRename(dbFileInfo.getFilePid(), dbFileInfo.getUserId(), dbFileInfo.getFileName()));
+                    dbFileInfo.setFileName(rename(dbFileInfo.getFilePid(), dbFileInfo.getUserId(), dbFileInfo.getFileName()));
                     uploadFileVO.setStatus(UploadStatusEnums.UPLOAD_SECONDS.getCode());
                     // 保存到数据库中
                     save(dbFileInfo);
@@ -263,7 +267,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
      */
     // TODO: 2024/9/28 可能存在bug
     @Override
-    public void getVideoInfo(HttpServletResponse response, String fileId, String token) {
+    public void getFile(HttpServletResponse response, String fileId, String token) {
         String targetPath = null;
         if (fileId.contains("../") || fileId.contains("..\\")) {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
@@ -276,8 +280,12 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             String realFileId = fileId.split("-")[0];
             fileInfo = infoService.getOne(new QueryWrapper<FileInfo>().eq("file_id", realFileId).eq("user_id", userId));
             targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0] + File.separator + fileId;
-        } else {
+        } else if (fileInfo.getFileType().intValue() == FileTypeEnums.VIDEO.getType().intValue()) {
+            // 获取m3u8索引文件
             targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0] + File.separator + CodeConstants.M3U8_NAME;
+        } else {
+            // 其他文件
+            targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath();
         }
         File file = new File(targetPath);
         if (!file.exists()) {
@@ -297,7 +305,195 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         }
     }
 
-    private String fileRename(String filePid, String userId, String fileName) {
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public FileInfoVO createFolder(String filePid, String folderName, String token) {
+        String userId = (String) (stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId"));
+        checkFileName(filePid, folderName, userId, FolderTypeEnums.FOLDER);
+        Date curDate = new Date();
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setFilePid(filePid);
+        fileInfo.setFileName(folderName);
+        fileInfo.setUserId(userId);
+        fileInfo.setFolderType(FolderTypeEnums.FOLDER.getType());
+        fileInfo.setStatus(FileStatusEnums.USING.getCode());
+        fileInfo.setCreateTime(curDate);
+        fileInfo.setLastUpdateTime(curDate);
+        fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
+        fileInfo.setFileId(StringTools.getRandomString(CodeConstants.LENGTH_10));
+        save(fileInfo);
+        return FileInfoVO.of(fileInfo);
+    }
+
+    @Override
+    public List<FolderInfoVO> getFolderInfo(String path, String token) {
+        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        if (StringTools.isEmpty(path)) {
+            return null;
+        }
+        String[] paths = path.split("/");
+        String join = StringUtils.join(paths, "\",\"");
+        List<String> ids = Arrays.stream(paths).collect(Collectors.toList());
+        List<FileInfo> fileList = list(new QueryWrapper<FileInfo>().in("file_id", ids)
+                .eq("user_id", userId)
+                .eq("folder_type", FolderTypeEnums.FOLDER.getType())
+                // 根据前端传输的 数据顺序排序 order by field
+                .last("ORDER BY FIELD(file_id, " + '\"' + join + '\"' + ")"));
+        return fileList.stream().map(FolderInfoVO::of).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public FileInfoVO fileRename(String token,String fileId, String fileName) {
+        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        FileInfo fileInfo = getOne(new QueryWrapper<FileInfo>().eq("user_id", userId).eq("file_id", fileId));
+        if (fileInfo == null) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        checkFileName(fileInfo.getFilePid(), fileName, userId, FolderTypeEnums.DOCUMENT);
+        fileInfo.setFileName(fileName + "." + StringTools.getFileSuffix(fileInfo.getFileName()));
+        updateById(fileInfo);
+        return FileInfoVO.of(fileInfo);
+    }
+
+    @Override
+    public List<FileInfoVO> getAllFolder(String token, String filePid, String currentFileIds) {
+        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        List<FileInfo> list = list(new QueryWrapper<FileInfo>().eq("user_id", userId)
+                .eq("folder_type", FolderTypeEnums.FOLDER.getType()).eq("file_pid", filePid)
+                .eq("status", FileStatusEnums.USING.getCode())
+                .eq("del_flag", FileDelFlagEnums.NORMAL.getCode())
+                .orderByDesc("last_update_time")
+                .notIn("file_id", currentFileIds));
+        if (list == null || list.isEmpty()) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        return list.stream().map(FileInfoVO::of).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void changeFileFolder(String token, String fileIds, String filePid) {
+        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        // 查询目标目录下的文件
+        List<FileInfo> list = list(new QueryWrapper<FileInfo>().eq("file_pid", filePid).eq("user_id", userId)
+                .eq("status", FileStatusEnums.USING.getCode()).eq("del_flag", FileDelFlagEnums.NORMAL.getCode()));
+        Map<String, String> fileMap = list.stream().collect(Collectors.toMap(FileInfo::getFileName, FileInfo::getFileId));
+        // 查询需要移动的文件
+        Object[] array = Arrays.stream(fileIds.split(",")).toArray();
+        List<FileInfo> files = list(new QueryWrapper<FileInfo>().eq("user_id", userId).in("file_id", array)
+                .eq("status", FileStatusEnums.USING.getCode()).eq("del_flag", FileDelFlagEnums.NORMAL.getCode()));
+        for (FileInfo file : files) {
+            if (fileMap.get(file.getFileName()) != null){
+                // 存在重名文件
+                String fileName = file.getFileName();
+                String newName = StringTools.getFileNameNoSuffix(fileName) + StringTools.getRandomString(CodeConstants.LENGTH_5);
+                file.setFileName(newName + "." + StringTools.getFileSuffix(fileName));
+            }
+            file.setFilePid(filePid);
+            updateById(file);
+        }
+    }
+
+    @Override
+    public String createDownloadUrl(String fileId, String token) {
+        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        FileInfo fileInfo = getOne(new QueryWrapper<FileInfo>().eq("file_id", fileId).eq("user_id", userId));
+        if (fileInfo == null || fileInfo.getFolderType().intValue() == FolderTypeEnums.FOLDER.getType().intValue()) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        // 创建下载code，存入redis设置五分钟有效期
+        String code = StringTools.getRandomString(CodeConstants.LENGTH_50);
+        FileDownloadDTO fileDownloadDTO = new FileDownloadDTO();
+        fileDownloadDTO.setFilePath(fileInfo.getFilePath());
+        fileDownloadDTO.setFileName(fileInfo.getFileName());
+        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_DOWNLOAD_CODE + code, JSON.toJSONString(fileDownloadDTO), 5, TimeUnit.MINUTES);
+        return code;
+    }
+
+    @Override
+    public void downloadFile(String code, HttpServletResponse response) {
+        String fileJson = stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_DOWNLOAD_CODE + code);
+        if (fileJson == null || StringTools.isEmpty(fileJson)) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        FileDownloadDTO fileDownloadDTO = JSON.parseObject(fileJson, FileDownloadDTO.class);
+        String filePath = projectFile + CodeConstants.FILE + fileDownloadDTO.getFilePath();
+        File file = new File(filePath);
+        if (!file.exists()) {
+            return;
+        }
+        try(FileInputStream inputStream = new FileInputStream(file);
+            ServletOutputStream outputStream = response.getOutputStream()) {
+            String fileName = URLEncoder.encode(fileDownloadDTO.getFileName(), CodeConstants.CODE_UTF_8);
+            response.setContentType("application/octet-stream");
+            // 固定格式，指示浏览器为下载文件
+            response.setHeader("Content-Disposition", "attachment;filename="+fileName);
+            int len = 0;
+            byte[] buffer = new byte[1024 * 8];
+            while ((len = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, len);
+            }
+            outputStream.flush();
+        } catch (IOException e) {
+            log.error("文件下载失败:{}", filePath);
+            throw new AppException("文件下载失败");
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void removeFile2RecycleBatch(String fileIds, String token) {
+        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        Date curDate = new Date();
+        if (StringTools.isEmpty(fileIds)) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        List<String> ids = Arrays.stream(fileIds.split(",")).collect(Collectors.toList());
+        // 文件
+        List<FileInfo> fileList = list(new QueryWrapper<FileInfo>().eq("user_id", userId).in("file_id", ids)
+                .eq("status", FileStatusEnums.USING.getCode()).eq("folder_type", FolderTypeEnums.DOCUMENT.getType())
+                .eq("del_flag", FileDelFlagEnums.NORMAL.getCode()));
+        // 目录(需要将目录下的文件全部删除)
+        List<FileInfo> folderList = list(new QueryWrapper<FileInfo>().eq("user_id", userId).in("file_id", ids)
+                .eq("status", FileStatusEnums.USING.getCode()).eq("folder_type", FolderTypeEnums.FOLDER.getType())
+                .eq("del_flag", FileDelFlagEnums.NORMAL.getCode()));
+        for (FileInfo fileInfo : folderList) {
+            findFileInFolder(fileList, folderList, fileInfo, userId);
+        }
+        List<FileInfo> fileInfos = fileList.stream().peek(fileInfo -> {
+            fileInfo.setRecoveryTime(curDate);
+            fileInfo.setDelFlag(FileDelFlagEnums.RECOVERY.getCode());
+        }).collect(Collectors.toList());
+        updateBatchById(fileInfos);
+    }
+
+    private void findFileInFolder(List<FileInfo> fileList, List<FileInfo> folderList, FileInfo fileInfo, String userId) {
+        if(fileInfo.getFolderType().intValue() == FolderTypeEnums.FOLDER.getType().intValue()) {
+            List<FileInfo> list = list(new QueryWrapper<FileInfo>().eq("user_id", userId).eq("file_pid", fileInfo.getFileId())
+                    .eq("status", FileStatusEnums.USING.getCode()).eq("del_flag", FileDelFlagEnums.NORMAL.getCode()));
+            for (FileInfo info : list) {
+                findFileInFolder(fileList, folderList,info, userId);
+            }
+        }
+        // 便利完目录，将目录同一放入回收站
+        fileList.add(fileInfo);
+    }
+
+    private void checkFileName(String filePid, String fileName, String userId, FolderTypeEnums folderTypeEnums) {
+        FileInfo fileInfo = getOne(new QueryWrapper<FileInfo>()
+                .eq("file_pid", filePid)
+                .eq("file_name", fileName)
+                .eq("user_id", userId)
+                .eq("folder_type", folderTypeEnums.getType())
+                .eq("del_flag", FileDelFlagEnums.NORMAL.getCode())
+                .eq("status", FileStatusEnums.USING.getCode()));
+        if (fileInfo != null) {
+            throw new AppException("文件名已存在");
+        }
+    }
+
+    private String rename(String filePid, String userId, String fileName) {
         QueryWrapper<FileInfo> fileQueryWrapper = new QueryWrapper<>();
         fileQueryWrapper.eq("file_pid", filePid);
         fileQueryWrapper.eq("user_id", userId);
@@ -311,6 +507,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         }
         return fileName;
     }
+
 
     private void updateUserSpace(String userId, Long useSpace, Long totalSpace) {
         UserSpaceVO userSpaceVO = JSON.parseObject(stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId), UserSpaceVO.class);
@@ -343,6 +540,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     }
 
     @Async
+    @Transactional(rollbackFor = Exception.class)
     protected void mergeFiles(String fileId, String userId) {
         boolean mergeFilesSuccess = true;
         String targetPath = null;
