@@ -14,6 +14,8 @@ public class CodeConstants {
 
     public final static int LENGTH_10 = 10;
 
+    public final static int LENGTH_50 = 50;
+
     public final static Long MB = 1024 * 1024L;
 
     public final static String IMAGE_FILE = "file/image/";
@@ -31,4 +33,6 @@ public class CodeConstants {
     public final static String M3U8_NAME = "index.m3u8";
 
     public final static String RESOLUTION_150 = "150x150";
+
+    public final static String CODE_UTF_8 = "utf-8";
 }

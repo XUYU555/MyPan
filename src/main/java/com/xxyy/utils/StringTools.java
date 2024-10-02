@@ -36,4 +36,10 @@ public class StringTools {
         // 防止有多个文件名中有多的“.“ 只取最后一个
         return split[split.length-1];
     }
+
+    public static String getFileNameNoSuffix(String fileName) {
+        String[] split = fileName.split("\\.");
+        return fileName.substring(0, fileName.length() - split[split.length - 1].length() - 1);
+    }
+
 }
