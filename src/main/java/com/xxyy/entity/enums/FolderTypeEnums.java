@@ -11,7 +11,8 @@ import lombok.Getter;
 @Getter
 public enum FolderTypeEnums {
     FOLDER(1, "目录"),
-    DOCUMENT(0, "文件")
+    DOCUMENT(0, "文件"),
+    ALL(2, "所有数据")
     ;
 
     private final Integer type;

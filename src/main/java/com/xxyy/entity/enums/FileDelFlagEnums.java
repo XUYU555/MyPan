@@ -10,8 +10,9 @@ import lombok.Getter;
 
 @Getter
 public enum FileDelFlagEnums {
-    RECOVERY(0, "进入回收站"),
-    NORMAL(1, "正常")
+    RECOVERY(1, "进入回收站"),
+    NORMAL(2, "正常"),
+    DELETE(0, "逻辑删除")
     ;
 
     private final int code;

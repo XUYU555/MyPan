@@ -41,7 +41,6 @@ import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -451,33 +450,39 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         }
         List<String> ids = Arrays.stream(fileIds.split(",")).collect(Collectors.toList());
         // 文件
-        List<FileInfo> fileList = list(new QueryWrapper<FileInfo>().eq("user_id", userId).in("file_id", ids)
-                .eq("status", FileStatusEnums.USING.getCode()).eq("folder_type", FolderTypeEnums.DOCUMENT.getType())
-                .eq("del_flag", FileDelFlagEnums.NORMAL.getCode()));
+        List<FileInfo> fileList = getBaseMapper().findUsingFileList(userId, ids, FolderTypeEnums.DOCUMENT);
         // 目录(需要将目录下的文件全部删除)
-        List<FileInfo> folderList = list(new QueryWrapper<FileInfo>().eq("user_id", userId).in("file_id", ids)
-                .eq("status", FileStatusEnums.USING.getCode()).eq("folder_type", FolderTypeEnums.FOLDER.getType())
-                .eq("del_flag", FileDelFlagEnums.NORMAL.getCode()));
+        List<FileInfo> folderList = getBaseMapper().findUsingFileList(userId, ids, FolderTypeEnums.FOLDER);
+        List<FileInfo> subFolderFiles = new ArrayList<>();
         for (FileInfo fileInfo : folderList) {
-            findFileInFolder(fileList, folderList, fileInfo, userId);
+            findFileInFolder(subFolderFiles, fileList, fileInfo, userId);
         }
         List<FileInfo> fileInfos = fileList.stream().peek(fileInfo -> {
             fileInfo.setRecoveryTime(curDate);
             fileInfo.setDelFlag(FileDelFlagEnums.RECOVERY.getCode());
         }).collect(Collectors.toList());
+        fileInfos.addAll(subFolderFiles.stream()
+                .peek(fileInfo -> {
+                    // 目录下的文件直接定义为删除，方便回收站还原
+                    fileInfo.setDelFlag(FileDelFlagEnums.DELETE.getCode());
+                    fileInfo.setRecoveryTime(curDate);
+                }).collect(Collectors.toList()));
         updateBatchById(fileInfos);
     }
 
-    private void findFileInFolder(List<FileInfo> fileList, List<FileInfo> folderList, FileInfo fileInfo, String userId) {
+    private void findFileInFolder(List<FileInfo> subFolderFiles, List<FileInfo> fileList, FileInfo fileInfo, String userId) {
         if(fileInfo.getFolderType().intValue() == FolderTypeEnums.FOLDER.getType().intValue()) {
             List<FileInfo> list = list(new QueryWrapper<FileInfo>().eq("user_id", userId).eq("file_pid", fileInfo.getFileId())
                     .eq("status", FileStatusEnums.USING.getCode()).eq("del_flag", FileDelFlagEnums.NORMAL.getCode()));
             for (FileInfo info : list) {
-                findFileInFolder(fileList, folderList,info, userId);
+                findFileInFolder(subFolderFiles, fileList, info, userId);
             }
+            // 将目录放入回收站中
+            fileList.add(fileInfo);
+        }else {
+            // 将目录下的文件同一放入回收站
+            subFolderFiles.add(fileInfo);
         }
-        // 便利完目录，将目录同一放入回收站
-        fileList.add(fileInfo);
     }
 
     private void checkFileName(String filePid, String fileName, String userId, FolderTypeEnums folderTypeEnums) {
