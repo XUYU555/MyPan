@@ -81,6 +81,10 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
     @Transactional(rollbackFor = Exception.class)
     public void deleteFile(String token, String fileIds) {
         String userId = (String)stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        // 兼容admin端的 接口
+        if (userId == null && token.length() == CodeConstants.LENGTH_10) {
+            userId = token;
+        }
         List<String> ids = Arrays.stream(fileIds.split(",")).collect(Collectors.toList());
         List<FileInfo> recycleFileList = getBaseMapper().findRecycleFileList(userId, ids, FolderTypeEnums.ALL);
         // 获得所选的文件与目录下的文件
@@ -99,8 +103,11 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
         // 更新缓存
         String json = stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId);
         UserSpaceVO userSpaceVO = JSON.parseObject(json, UserSpaceVO.class);
-        userSpaceVO.setUseSpace(userSpaceVO.getUseSpace() - allSize);
-        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, JSON.toJSONString(userSpaceVO), 1, TimeUnit.HOURS);
+        if (userSpaceVO != null) {
+            // 兼容管理端，删除文件时用户未登录则不需要更新缓存
+            userSpaceVO.setUseSpace(userSpaceVO.getUseSpace() - allSize);
+            stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, JSON.toJSONString(userSpaceVO), 1, TimeUnit.HOURS);
+        }
         // 删除文件
         removeByIds(subFileList.stream().map(FileInfo::getFileId).collect(Collectors.toList()));
     }

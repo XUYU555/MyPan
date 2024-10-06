@@ -24,4 +24,13 @@ public enum UserStatusEnums {
         this.msg = msg;
     }
 
+    public static UserStatusEnums getUserStatusEnums(int status) {
+        for (UserStatusEnums value : UserStatusEnums.values()) {
+            if (status == value.status) {
+                return value;
+            }
+        }
+        return null;
+    }
+
 }

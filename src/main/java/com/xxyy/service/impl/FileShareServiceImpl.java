@@ -46,12 +46,14 @@ public class FileShareServiceImpl extends ServiceImpl<FileShareMapper, FileShare
     @Override
     public PagingQueryVO<FileShareVO> pageShareList(String token, Page<FileShareVO> fileSharePage) {
         String userId = (String)stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        // mybatis-plus联合查询 查询File表中的字段加入到FileShare类中
         Page<FileShareVO> fileSharePageVO = getBaseMapper().selectJoinPage(fileSharePage, FileShareVO.class,
                 new MPJLambdaWrapper<FileShare>().selectAll(FileShare.class)
                         .select(FileInfo::getFileName).select(FileInfo::getFolderType)
                         .select(FileInfo::getFileCategory).select(FileInfo::getFileType)
                         .select(FileInfo::getFileCover).leftJoin(FileInfo.class, FileInfo::getFileId, FileShare::getFileId)
-                        .eq(FileInfo::getDelFlag, FileDelFlagEnums.NORMAL.getCode()));
+                        .eq(FileInfo::getDelFlag, FileDelFlagEnums.NORMAL.getCode())
+                        .eq(FileInfo::getUserId, userId));
         return PagingQueryVO.ofShare(fileSharePageVO);
     }
 

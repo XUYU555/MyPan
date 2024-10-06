@@ -274,6 +274,10 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             return;
         }
         String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        // 兼容管理端 接口
+        if (userId == null && token.length() == CodeConstants.LENGTH_10) {
+            userId = token;
+        }
         FileInfo fileInfo = infoService.getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId).eq(FileInfo::getUserId, userId));
         if (fileInfo == null) {
             // 请求的是ts文件
@@ -398,6 +402,10 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     @Override
     public String createDownloadUrl(String fileId, String token) {
         String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        // admin管理端
+        if (userId == null && token.length() == CodeConstants.LENGTH_10) {
+            userId = token;
+        }
         FileInfo fileInfo = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId).eq(FileInfo::getUserId, userId));
         if (fileInfo == null || fileInfo.getFolderType().intValue() == FolderTypeEnums.FOLDER.getType().intValue()) {
             throw new AppException(ResponseCodeEnums.CODE_600);
@@ -445,6 +453,10 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     @Transactional(rollbackFor = Exception.class)
     public void removeFile2RecycleBatch(String fileIds, String token) {
         String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        // 兼容admin端的 接口
+        if (userId == null && token.length() == CodeConstants.LENGTH_10) {
+            userId = token;
+        }
         Date curDate = new Date();
         if (StringTools.isEmpty(fileIds)) {
             throw new AppException(ResponseCodeEnums.CODE_600);

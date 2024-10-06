@@ -3,7 +3,9 @@ package com.xxyy.entity.vo;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xxyy.entity.FileInfo;
 import com.xxyy.entity.FileShare;
+import com.xxyy.entity.UserInfo;
 import lombok.Data;
+import org.apache.catalina.User;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -44,6 +46,27 @@ public class PagingQueryVO <T> {
         pagingQueryVO.setPageTotal(page.getPages());
         pagingQueryVO.setTotalCount(page.getTotal());
         pagingQueryVO.setList(page.getRecords());
+        return pagingQueryVO;
+    }
+
+    public static PagingQueryVO<FileInfoVO> ofFile(Page<FileInfoVO> page) {
+        PagingQueryVO<FileInfoVO> pagingQueryVO = new PagingQueryVO<>();
+        pagingQueryVO.setPageSize(page.getSize());
+        pagingQueryVO.setPageNo(page.getCurrent());
+        pagingQueryVO.setPageTotal(page.getPages());
+        pagingQueryVO.setTotalCount(page.getTotal());
+        pagingQueryVO.setList(page.getRecords());
+        return pagingQueryVO;
+    }
+
+    public static PagingQueryVO<UserInfoVO> ofUser(Page<UserInfo> page) {
+        PagingQueryVO<UserInfoVO> pagingQueryVO = new PagingQueryVO<>();
+        pagingQueryVO.setPageSize(page.getSize());
+        pagingQueryVO.setPageNo(page.getCurrent());
+        pagingQueryVO.setPageTotal(page.getPages());
+        pagingQueryVO.setTotalCount(page.getTotal());
+        List<UserInfoVO> collect = page.getRecords().stream().map(UserInfoVO::of).collect(Collectors.toList());
+        pagingQueryVO.setList(collect);
         return pagingQueryVO;
     }
 

@@ -36,6 +36,12 @@ public class FileInfoVO {
 
     private int fileCategory;
 
+    // admin使用联合查询才会返回
+    private String nickName;
+
+    // admin使用联合查询
+    private String userId;
+
     public static FileInfoVO of(FileInfo fileInfo) {
         SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         FileInfoVO fileInfoVO = new FileInfoVO();

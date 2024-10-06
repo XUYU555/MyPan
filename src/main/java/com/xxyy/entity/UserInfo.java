@@ -1,6 +1,7 @@
 package com.xxyy.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -26,24 +27,34 @@ public class UserInfo implements Serializable {
     @TableId(value = "user_id", type = IdType.NONE)
     private String userId;
 
+    @TableField(value = "nick_name")
     private String nickName;
 
+    @TableField(value = "password")
     private String password;
 
+    @TableField(value = "email")
     private String email;
 
+    @TableField(value = "qq_open_id")
     private String qqOpenId;
 
+    @TableField(value = "avatar")
     private String avatar;
 
+    @TableField(value = "register_time")
     private Date registerTime;
 
+    @TableField(value = "last_login_time")
     private Date lastLoginTime;
 
+    @TableField(value = "use_space")
     private Long useSpace;
 
+    @TableField(value = "total_space")
     private Long totalSpace;
 
+    @TableField(value = "status")
     private int status;
 
 }

@@ -8,7 +8,7 @@
                 use_space = use_space + #{useSpace}
             </if>
             <if test="totalSpace != null">
-                total_space = total_space + #{totalSpace}
+                total_space = #{totalSpace}
             </if>
         </set>
         where user_id = #{userId}
@@ -16,7 +16,7 @@
             <![CDATA[ and (use_space + #{useSpace}) <= total_space ]]>
         </if>
         <if test="totalSpace != null">
-            <![CDATA[ and (total_space + #{totalSpace}) >= use_space ]]>
+            <![CDATA[ and #{totalSpace} >= use_space ]]>
         </if>
     </update>
 </mapper>
