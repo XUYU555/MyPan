@@ -67,7 +67,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     FileInfoServiceImpl infoService;
 
     @Override
-    public PagingQueryVO pageQueryFile(FileQueryDTO fileQueryDTO, String token) {
+    public PagingQueryVO<FileInfoVO> pageQueryFile(FileQueryDTO fileQueryDTO, String token) {
         long pageNo = "".equals(fileQueryDTO.getPageNo())? 1 : Long.parseLong(fileQueryDTO.getPageNo());
         long pageSize = "".equals(fileQueryDTO.getPageSize())? 15:Long.parseLong(fileQueryDTO.getPageSize());
         // 设置分页参数

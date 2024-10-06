@@ -3,6 +3,7 @@ package com.xxyy.service;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.xxyy.entity.FileInfo;
+import com.xxyy.entity.vo.FileInfoVO;
 import com.xxyy.entity.vo.PagingQueryVO;
 
 /**
@@ -11,7 +12,7 @@ import com.xxyy.entity.vo.PagingQueryVO;
  */
 public interface IRecycleBinService extends IService<FileInfo> {
 
-    PagingQueryVO getRecycleList(Page<FileInfo> fileInfoPage, String token);
+    PagingQueryVO<FileInfoVO> getRecycleList(Page<FileInfo> fileInfoPage, String token);
 
     void recoverFile(String token, String fileIds);
 

@@ -16,6 +16,8 @@ public class CodeConstants {
 
     public final static int LENGTH_10 = 10;
 
+    public final static int LENGTH_20 = 20;
+
     public final static int LENGTH_50 = 50;
 
     public final static Long MB = 1024 * 1024L;

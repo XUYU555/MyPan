@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xxyy.annotation.GlobalInterceptor;
 import com.xxyy.annotation.VerifyParams;
 import com.xxyy.entity.FileInfo;
+import com.xxyy.entity.vo.FileInfoVO;
 import com.xxyy.entity.vo.PagingQueryVO;
 import com.xxyy.service.IRecycleBinService;
 import com.xxyy.utils.StringTools;
@@ -30,7 +31,7 @@ public class RecycleBinController {
 
     @PostMapping(value = "/loadRecycleList")
     @GlobalInterceptor
-    public Result<PagingQueryVO> getRecycleList(HttpServletRequest request,  String pageSize, String pageNo) {
+    public Result<PagingQueryVO<FileInfoVO>> getRecycleList(HttpServletRequest request, String pageSize, String pageNo) {
         String token = request.getHeader("authorization");
         Page<FileInfo> fileInfoPage = new Page<>();
         fileInfoPage.setSize(!StringTools.isEmpty(pageSize) ? Long.parseLong(pageSize): 15);
@@ -47,7 +48,7 @@ public class RecycleBinController {
     }
 
     @PostMapping(value = "/delFile")
-    //@GlobalInterceptor(checkParams = true)
+    @GlobalInterceptor(checkParams = true)
     public Result<?> deleteFile(HttpServletRequest request, @VerifyParams(required = true) String fileIds) {
         String token = request.getHeader("authorization");
         recycleBinService.deleteFile(token, fileIds);

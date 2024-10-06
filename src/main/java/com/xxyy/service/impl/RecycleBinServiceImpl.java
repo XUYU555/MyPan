@@ -8,6 +8,7 @@ import com.xxyy.entity.FileInfo;
 import com.xxyy.entity.enums.FileDelFlagEnums;
 import com.xxyy.entity.enums.FileStatusEnums;
 import com.xxyy.entity.enums.FolderTypeEnums;
+import com.xxyy.entity.vo.FileInfoVO;
 import com.xxyy.entity.vo.PagingQueryVO;
 import com.xxyy.entity.vo.UserSpaceVO;
 import com.xxyy.mapper.FileInfoMapper;
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -43,7 +45,7 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
     UserInfoMapper userInfoMapper;
 
     @Override
-    public PagingQueryVO getRecycleList(Page<FileInfo> fileInfoPage, String token) {
+    public PagingQueryVO<FileInfoVO> getRecycleList(Page<FileInfo> fileInfoPage, String token) {
         String userId = (String)stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
         // 添加查询条件
         QueryWrapper<FileInfo> fileQueryWrapper = new QueryWrapper<>();
@@ -98,7 +100,7 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
         String json = stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId);
         UserSpaceVO userSpaceVO = JSON.parseObject(json, UserSpaceVO.class);
         userSpaceVO.setUseSpace(userSpaceVO.getUseSpace() - allSize);
-        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, JSON.toJSONString(userSpaceVO));
+        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, JSON.toJSONString(userSpaceVO), 1, TimeUnit.HOURS);
         // 删除文件
         removeByIds(subFileList.stream().map(FileInfo::getFileId).collect(Collectors.toList()));
     }

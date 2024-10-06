@@ -31,8 +31,8 @@ public class FileInfoController {
 
     @PostMapping(value = "/loadDataList")
     @GlobalInterceptor(checkParams = true)
-    public Result<PagingQueryVO> loadDataList(FileQueryDTO fileQueryDTO, HttpServletRequest request) {
-        PagingQueryVO output = fileService.pageQueryFile(fileQueryDTO, request.getHeader("authorization"));
+    public Result<PagingQueryVO<FileInfoVO>> loadDataList(FileQueryDTO fileQueryDTO, HttpServletRequest request) {
+        PagingQueryVO<FileInfoVO> output = fileService.pageQueryFile(fileQueryDTO, request.getHeader("authorization"));
         return Result.data(output);
     }
 

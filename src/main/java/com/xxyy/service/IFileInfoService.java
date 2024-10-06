@@ -17,7 +17,7 @@ import java.util.List;
  */
 public interface IFileInfoService extends IService<FileInfo> {
 
-    PagingQueryVO pageQueryFile(FileQueryDTO fileQueryDTO, String token);
+    PagingQueryVO<FileInfoVO> pageQueryFile(FileQueryDTO fileQueryDTO, String token);
 
     UploadFileVO uploadFile(UploadFileDTO upLoadFileDTO, String token);
 
