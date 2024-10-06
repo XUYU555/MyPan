@@ -7,7 +7,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xxyy.component.MailComponent;
-import com.xxyy.config.SysSettingConfig;
+import com.xxyy.entity.dto.SysSettingDTO;
 import com.xxyy.entity.UserInfo;
 import com.xxyy.entity.dto.EmailLoginDTO;
 import com.xxyy.entity.dto.EmailRegisterDTO;
@@ -91,12 +91,12 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
         //发送邮箱验证码
         try {
             // 获取系统邮件设置
-            SysSettingConfig sysSetting = mailComponent.getSysSetting();
+            SysSettingDTO sysSetting = mailComponent.getSysSetting();
             MimeMessageHelper helper = new MimeMessageHelper(javaMailSender.createMimeMessage());
             helper.setFrom(fromEmail);
             helper.setTo(email);
-            helper.setSubject(sysSetting.getSendMailTitle());
-            helper.setText(String.format(sysSetting.getSendMailText(), code));
+            helper.setSubject(sysSetting.getRegisterEmailTitle());
+            helper.setText(String.format(sysSetting.getRegisterEmailContent(), code));
             helper.setSentDate(new Date());
             javaMailSender.send(helper.getMimeMessage());
         } catch (MessagingException e) {
@@ -125,7 +125,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
         userInfo.setEmail(emailRegisterDTO.getEmail());
         userInfo.setPassword(StringTools.byMd5(emailRegisterDTO.getPassword()));
         userInfo.setUseSpace((long) CodeConstants.ZERO);
-        userInfo.setTotalSpace(mailComponent.getSysSetting().getUserInitSpace() * CodeConstants.MB);
+        userInfo.setTotalSpace(mailComponent.getSysSetting().getUserInitUseSpace() * CodeConstants.MB);
         userInfo.setRegisterTime(new Date());
         userInfo.setStatus(UserStatusEnums.EABLE.getStatus());
         save(userInfo);
