@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.conditions.query.QueryChainWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.ChainWrappers;
+import com.github.yulichang.base.MPJBaseMapper;
+import com.github.yulichang.interfaces.MPJBaseJoin;
 import com.xxyy.entity.FileInfo;
 import com.xxyy.entity.enums.FileDelFlagEnums;
 import com.xxyy.entity.enums.FileStatusEnums;
@@ -16,7 +18,7 @@ import java.util.List;
  * @author xy
  * @date 2024-09-22 11:06
  */
-public interface FileInfoMapper extends BaseMapper<FileInfo> {
+public interface FileInfoMapper extends MPJBaseMapper<FileInfo> {
 
     Long selectUseSpace(@Param(value = "userId") String userId);
 

@@ -2,6 +2,7 @@ package com.xxyy.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.github.yulichang.wrapper.MPJLambdaWrapper;
 import com.xxyy.entity.FileInfo;
 import com.xxyy.entity.FileShare;
 import com.xxyy.entity.enums.FileDelFlagEnums;
@@ -43,17 +44,15 @@ public class FileShareServiceImpl extends ServiceImpl<FileShareMapper, FileShare
     IFileInfoService fileInfoService;
 
     @Override
-    public PagingQueryVO<FileShareVO> pageShareList(String token, Page<FileShare> fileSharePage) {
+    public PagingQueryVO<FileShareVO> pageShareList(String token, Page<FileShareVO> fileSharePage) {
         String userId = (String)stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
-        Page<FileShare> pageShareList = query().eq("user_id", userId).page(fileSharePage);
-        PagingQueryVO<FileShareVO> pagingQueryVO = PagingQueryVO.ofPage(pageShareList);
-        List<FileShareVO> fileShareVOList = pageShareList.getRecords().stream().map(fileShare -> {
-            FileInfo fileInfo = fileInfoService.query().eq("file_id", fileShare.getFileId()).eq("user_id", userId)
-                    .eq("del_flag", FileDelFlagEnums.NORMAL.getCode()).one();
-            return FileShareVO.of(fileShare, fileInfo);
-        }).collect(Collectors.toList());
-        pagingQueryVO.setList(fileShareVOList);
-        return pagingQueryVO;
+        Page<FileShareVO> fileSharePageVO = getBaseMapper().selectJoinPage(fileSharePage, FileShareVO.class,
+                new MPJLambdaWrapper<FileShare>().selectAll(FileShare.class)
+                        .select(FileInfo::getFileName).select(FileInfo::getFolderType)
+                        .select(FileInfo::getFileCategory).select(FileInfo::getFileType)
+                        .select(FileInfo::getFileCover).leftJoin(FileInfo.class, FileInfo::getFileId, FileShare::getFileId)
+                        .eq(FileInfo::getDelFlag, FileDelFlagEnums.NORMAL.getCode()));
+        return PagingQueryVO.ofShare(fileSharePageVO);
     }
 
     @Override

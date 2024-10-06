@@ -33,7 +33,7 @@ public class FileShareController {
     @GlobalInterceptor
     public Result<PagingQueryVO<FileShareVO>> pageShareList(HttpServletRequest request, String pageNo, String pageSize) {
         String token = request.getHeader("authorization");
-        Page<FileShare> fileSharePage = new Page<>();
+        Page<FileShareVO> fileSharePage = new Page<>();
         fileSharePage.setSize(!StringTools.isEmpty(pageSize) ? Long.parseLong(pageSize): 15);
         fileSharePage.setCurrent(!StringTools.isEmpty(pageNo)? Long.parseLong(pageNo): 1);
         return Result.data(fileShareService.pageShareList(token, fileSharePage));

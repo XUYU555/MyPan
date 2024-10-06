@@ -39,4 +39,6 @@ public class CodeConstants {
     public final static String RESOLUTION_150 = "150x150";
 
     public final static String CODE_UTF_8 = "utf-8";
+
+    public final static String CN_TUPIAN = "图片";
 }

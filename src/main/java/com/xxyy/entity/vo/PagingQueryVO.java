@@ -37,12 +37,13 @@ public class PagingQueryVO <T> {
         return pagingQueryVO;
     }
 
-    public static PagingQueryVO<FileShareVO> ofPage(Page<FileShare> page) {
+    public static PagingQueryVO<FileShareVO> ofShare(Page<FileShareVO> page) {
         PagingQueryVO<FileShareVO> pagingQueryVO = new PagingQueryVO<>();
         pagingQueryVO.setPageSize(page.getSize());
         pagingQueryVO.setPageNo(page.getCurrent());
         pagingQueryVO.setPageTotal(page.getPages());
         pagingQueryVO.setTotalCount(page.getTotal());
+        pagingQueryVO.setList(page.getRecords());
         return pagingQueryVO;
     }
 

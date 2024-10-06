@@ -1,6 +1,7 @@
 package com.xxyy.mapper;
 
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+
+import com.github.yulichang.base.MPJBaseMapper;
 import com.xxyy.entity.FileShare;
 
 /**
@@ -9,6 +10,6 @@ import com.xxyy.entity.FileShare;
  */
 
 
-public interface FileShareMapper extends BaseMapper<FileShare> {
+public interface FileShareMapper extends MPJBaseMapper<FileShare> {
 
 }

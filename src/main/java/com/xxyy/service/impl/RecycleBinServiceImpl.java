@@ -1,6 +1,7 @@
 package com.xxyy.service.impl;
 
 import com.alibaba.fastjson2.JSON;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -26,7 +27,6 @@ import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -48,10 +48,10 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
     public PagingQueryVO<FileInfoVO> getRecycleList(Page<FileInfo> fileInfoPage, String token) {
         String userId = (String)stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
         // 添加查询条件
-        QueryWrapper<FileInfo> fileQueryWrapper = new QueryWrapper<>();
-        fileQueryWrapper.eq("user_id", userId);
-        fileQueryWrapper.eq("del_flag", FileDelFlagEnums.RECOVERY.getCode());
-        fileQueryWrapper.orderByDesc("recovery_time");
+        LambdaQueryWrapper<FileInfo> fileQueryWrapper = new LambdaQueryWrapper<>();
+        fileQueryWrapper.eq(FileInfo::getUserId, userId);
+        fileQueryWrapper.eq(FileInfo::getDelFlag, FileDelFlagEnums.RECOVERY.getCode());
+        fileQueryWrapper.orderByDesc(FileInfo::getRecoveryTime);
         // 使用page方法进行分页查询
         Page<FileInfo> pageResult = page(fileInfoPage, fileQueryWrapper);
         return PagingQueryVO.of(pageResult);
@@ -106,9 +106,10 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
     }
 
     private void checkParentFileExist(FileInfo fileInfo) {
-        FileInfo one = query().eq("file_id", fileInfo.getFilePid()).eq("user_id", fileInfo.getUserId())
-                .eq("status", FileStatusEnums.USING.getCode())
-                .eq("del_flag", FileDelFlagEnums.NORMAL.getCode()).one();
+        FileInfo one = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileInfo.getFilePid())
+                .eq(FileInfo::getUserId, fileInfo.getUserId())
+                .eq(FileInfo::getStatus, FileStatusEnums.USING.getCode())
+                .eq(FileInfo::getDelFlag, FileDelFlagEnums.NORMAL.getCode()));
         if (one == null) {
             // 放入根目录
             fileInfo.setFilePid(CodeConstants.ZERO_STR);
@@ -123,8 +124,8 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
 
     private void recoverFolderAndSubFile(FileInfo fileInfo, List<FileInfo> subFileList) {
         if (fileInfo.getFolderType().intValue() != FolderTypeEnums.DOCUMENT.getType()) {
-            List<FileInfo> list = query().eq("file_pid", fileInfo.getFileId())
-                    .eq("user_id", fileInfo.getUserId()).eq("del_flag", FileDelFlagEnums.DELETE.getCode()).list();
+            List<FileInfo> list = list(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileInfo.getFileId())
+                    .eq(FileInfo::getUserId, fileInfo.getUserId()).eq(FileInfo::getDelFlag, FileDelFlagEnums.DELETE.getCode()));
             for (FileInfo info : list) {
                 recoverFolderAndSubFile(info, subFileList);
             }
@@ -135,10 +136,11 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
     }
 
     private boolean checkFileName(FileInfo fileInfo) {
-        FileInfo one = query().eq("file_pid", fileInfo.getFilePid()).eq("user_id", fileInfo.getUserId())
-                .eq("file_name", fileInfo.getFileName())
-                .eq("status", FileStatusEnums.USING.getCode())
-                .eq("del_flag", FileDelFlagEnums.NORMAL.getCode()).one();
+        FileInfo one = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFilePid, fileInfo.getFilePid())
+                .eq(FileInfo::getUserId, fileInfo.getUserId())
+                .eq(FileInfo::getFileName, fileInfo.getFileName())
+                .eq(FileInfo::getStatus, FileStatusEnums.USING.getCode())
+                .eq(FileInfo::getDelFlag, FileDelFlagEnums.NORMAL.getCode()));
         return one != null;
     }
 }

@@ -12,7 +12,7 @@ import com.xxyy.entity.vo.PagingQueryVO;
  */
 public interface IFileShareService extends IService<FileShare> {
 
-    PagingQueryVO<FileShareVO> pageShareList(String token, Page<FileShare> fileSharePage);
+    PagingQueryVO<FileShareVO> pageShareList(String token, Page<FileShareVO> fileSharePage);
 
     FileShareVO shareFile(String token, String fileId, Integer validType, String code);
 

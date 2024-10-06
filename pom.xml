@@ -18,11 +18,10 @@
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <springboot.version>2.6.1</springboot.version>
-        <mybatis_plus.version>3.4.3</mybatis_plus.version>
+        <mybatis_plus.version>3.5.1</mybatis_plus.version>
         <logback.version>1.2.10</logback.version>
         <mysql.version>8.0.23</mysql.version>
         <aspectjweaver.version>1.9.4</aspectjweaver.version>
-        <fastjson.version>1.2.66</fastjson.version>
         <commons.lang3.version>3.4</commons.lang3.version>
         <commons.codec.version>1.9</commons.codec.version>
         <commons.io.version>2.5</commons.io.version>
@@ -78,6 +77,12 @@
             <artifactId>mybatis-plus-boot-starter</artifactId>
             <version>${mybatis_plus.version}</version>
         </dependency>
+        <!--mybatis-join -->
+        <dependency>
+            <groupId>com.github.yulichang</groupId>
+            <artifactId>mybatis-plus-join-boot-starter</artifactId>
+            <version>1.4.12</version>
+        </dependency>
 
 
         <!-- mysql -->
@@ -107,12 +112,6 @@
             <version>${aspectjweaver.version}</version>
         </dependency>
 
-        <!--fastjson-->
-        <dependency>
-            <groupId>com.alibaba</groupId>
-            <artifactId>fastjson</artifactId>
-            <version>${fastjson.version}</version>
-        </dependency>
 
         <!--apache common-->
         <dependency>
@@ -151,7 +150,6 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-                <version>2.2.6.RELEASE</version>
                 <executions>
                     <execution>
                         <goals>

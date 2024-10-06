@@ -3,6 +3,7 @@ package com.xxyy.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import com.alibaba.fastjson.JSON;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xxyy.component.MailComponent;
@@ -208,7 +209,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
         }
         // 返回用户空间
         // TODO: 2024/9/25 返回用户空间使用情况可能有问题
-        UserInfo user = getOne(new QueryWrapper<UserInfo>().eq("user_id", loginInfoVO.getUserId()));
+        UserInfo user = getOne(new LambdaQueryWrapper<UserInfo>().eq(UserInfo::getUserId, loginInfoVO.getUserId()));
         UserSpaceVO userSpaceVO = new UserSpaceVO();
         userSpaceVO.setUseSpace(user.getUseSpace());
         userSpaceVO.setTotalSpace(user.getTotalSpace());
@@ -232,7 +233,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
     public void updateAvatar(MultipartFile avatarFile, String token) throws IOException {
         Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token);
         Object userId = entries.get("userId");
-        UserInfo userInfo = getOne(new QueryWrapper<UserInfo>().eq("user_id", userId));
+        UserInfo userInfo = getOne(new LambdaQueryWrapper<UserInfo>().eq(UserInfo::getUserId, userId));
         // 获得文件内容
         byte[] bytes = avatarFile.getBytes();
         String filePath = projectFile + CodeConstants.IMAGE_FILE + userInfo.getUserId() + CodeConstants.IMAGE_FILE_SUFFIX;
