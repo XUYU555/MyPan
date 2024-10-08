@@ -41,4 +41,6 @@ public class CodeConstants {
     public final static String CODE_UTF_8 = "utf-8";
 
     public final static String CN_TUPIAN = "图片";
+
+    public static final String SESSION_SHARE_KEY = "session_share_key";
 }

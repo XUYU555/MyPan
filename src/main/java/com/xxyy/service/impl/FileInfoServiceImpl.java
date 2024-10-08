@@ -370,7 +370,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 .orderByDesc(FileInfo::getLastUpdateTime)
                 .notIn(FileInfo::getFileId, currentFileIds));
         if (list == null || list.isEmpty()) {
-            return new ArrayList<FileInfoVO>();
+            return new ArrayList<>();
         }
         return list.stream().map(FileInfoVO::of).collect(Collectors.toList());
     }
@@ -673,4 +673,15 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         }
     }
 
+    public boolean checkFilePid(String filePid, String fileId, String userId) {
+        if (filePid.equals(fileId)) {
+            return true;
+        }
+        FileInfo fileInfo = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, filePid)
+                .eq(FileInfo::getUserId, userId).eq(FileInfo::getDelFlag, FileDelFlagEnums.NORMAL.getCode()));
+        if (fileInfo == null) {
+            return false;
+        }
+        return checkFilePid(fileInfo.getFilePid(), fileId, userId);
+    }
 }
