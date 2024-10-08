@@ -370,7 +370,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 .orderByDesc(FileInfo::getLastUpdateTime)
                 .notIn(FileInfo::getFileId, currentFileIds));
         if (list == null || list.isEmpty()) {
-            throw new AppException(ResponseCodeEnums.CODE_600);
+            return new ArrayList<FileInfoVO>();
         }
         return list.stream().map(FileInfoVO::of).collect(Collectors.toList());
     }
