@@ -98,8 +98,7 @@ public class FileInfoController {
 
     @PostMapping(value = "/loadAllFolder")
     @GlobalInterceptor(checkParams = true)
-    public Result<List<FileInfoVO>> getAllFolder(HttpServletRequest request, @VerifyParams(required = true) String filePid,
-                                                 @VerifyParams(required = true) String currentFileIds) {
+    public Result<List<FileInfoVO>> getAllFolder(HttpServletRequest request, @VerifyParams(required = true) String filePid, String currentFileIds) {
         String token = request.getHeader("authorization");
         return Result.data(fileService.getAllFolder(token, filePid, currentFileIds));
     }

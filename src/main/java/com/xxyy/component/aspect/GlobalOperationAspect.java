@@ -4,6 +4,7 @@ import com.xxyy.annotation.GlobalInterceptor;
 import com.xxyy.annotation.VerifyParams;
 import com.xxyy.entity.enums.ResponseCodeEnums;
 import com.xxyy.utils.RedisConstants;
+import com.xxyy.utils.StringTools;
 import com.xxyy.utils.common.AppException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
@@ -90,10 +91,10 @@ public class GlobalOperationAspect {
         // 获取用户登录信息
         ServletRequestAttributes requestAttributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         String token = requestAttributes.getRequest().getHeader("authorization");
-        if (token == null) {
+        String str = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("admin");
+        if (token == null || StringTools.isEmpty(str)) {
             throw new AppException(ResponseCodeEnums.CODE_901);
         }
-        String str = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("admin");
         boolean isAdmin = Boolean.parseBoolean(str);
         if (admin && !isAdmin) {
             throw new AppException(ResponseCodeEnums.CODE_404);

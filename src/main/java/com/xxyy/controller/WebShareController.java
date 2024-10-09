@@ -10,10 +10,7 @@ import com.xxyy.entity.FileShare;
 import com.xxyy.entity.UserInfo;
 import com.xxyy.entity.enums.FileDelFlagEnums;
 import com.xxyy.entity.enums.ResponseCodeEnums;
-import com.xxyy.entity.vo.FileInfoVO;
-import com.xxyy.entity.vo.PagingQueryVO;
-import com.xxyy.entity.vo.UserInfoVO;
-import com.xxyy.entity.vo.WebShareInfoVO;
+import com.xxyy.entity.vo.*;
 import com.xxyy.service.impl.FileInfoServiceImpl;
 import com.xxyy.service.impl.FileShareServiceImpl;
 import com.xxyy.utils.CodeConstants;
@@ -24,13 +21,15 @@ import com.xxyy.utils.common.Result;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * @author xy
@@ -148,6 +147,95 @@ public class WebShareController {
                 .eq(FileInfo::getFilePid, filePid)
                 .eq(FileInfo::getDelFlag, FileDelFlagEnums.NORMAL.getCode()));
         return Result.data(PagingQueryVO.of(infoPage));
+    }
+
+    @PostMapping(value = "/getFolderInfo")
+    @GlobalInterceptor(checkParams = true, checkLoing = false)
+    public Result<List<FolderInfoVO>> getFolderInfo(@VerifyParams(required = true) String path, @VerifyParams(required = true) String shareId) {
+        FileShare fileShare = fileShareService.getBaseMapper().selectById(shareId);
+        if (fileShare == null) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        List<FolderInfoVO> folderInfo = fileInfoService.getFolderInfo(path, fileShare.getUserId());
+        return Result.data(folderInfo);
+    }
+
+    @PostMapping(value = "/getFile/{shareId}/{fileId}")
+    @GlobalInterceptor(checkParams = true , checkLoing = false)
+    public Result<?> getFile(@PathVariable(value = "shareId") @VerifyParams(required = true) String shareId,
+                             @PathVariable(value = "fileId") @VerifyParams(required = true) String fileId,
+                             HttpServletResponse response) {
+        FileShare fileShare = fileShareService.getBaseMapper().selectById(shareId);
+        if (fileShare == null) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        fileInfoService.getFile(response, fileId, fileShare.getUserId());
+        return Result.ok();
+    }
+
+    @GetMapping(value = "/ts/getVideoInfo/{shareId}/{fileId}")
+    @GlobalInterceptor(checkParams = true, checkLoing = false)
+    public Result<?> getVideoInfo(@PathVariable(value = "shareId") @VerifyParams(required = true) String shareId,
+                                  @PathVariable(value = "fileId") @VerifyParams(required = true) String fileId,
+                                  HttpServletResponse response) {
+        FileShare fileShare = fileShareService.getBaseMapper().selectById(shareId);
+        if (fileShare == null) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        fileInfoService.getFile(response, fileId, fileShare.getUserId());
+        return Result.ok();
+    }
+
+
+    /**
+     * 保存文件到我的网盘(需要校验登录)
+     * @param shareId  文件分享id
+     * @param shareFileIds  需要保存的文件
+     * @param myFolderId  保存到我的网盘的目录id
+     * @return ok()
+     */
+    @PostMapping(value = "/saveShare")
+    @GlobalInterceptor(checkParams = true)
+    @Transactional(rollbackFor = Exception.class)
+    public Result<?> saveShareFile(@VerifyParams(required = true) String shareId, @VerifyParams(required = true) String shareFileIds,
+                                   @VerifyParams(required = true) String myFolderId, HttpServletRequest request) {
+        // TODO: 2024/10/8 保存文件到我的网盘 添加定时任务删除回收站
+        String token = request.getHeader("authorization");
+        // 获取当前登录用户id
+        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
+        FileShare fileShare = fileShareService.getBaseMapper().selectById(shareId);
+        if (fileShare == null || StringTools.isEmpty(userId)) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        // 校验需要保存的文件是不是分享的文件
+        List<String> fileIds = Arrays.stream(shareFileIds.split(",")).collect(Collectors.toList());
+        for (String fileId : fileIds) {
+            if (!fileInfoService.checkFilePid(fileId, fileShare.getFileId(), fileShare.getUserId())) {
+                throw new AppException(ResponseCodeEnums.CODE_600.getMsg());
+            }
+        }
+        fileShareService.saveShareFile2MyPan(fileIds, myFolderId, userId, fileShare.getUserId());
+        return Result.ok();
+    }
+
+    @PostMapping(value = "/createDownloadUrl/{shareId}/{fileId}")
+    @GlobalInterceptor(checkParams = true, checkLoing = false)
+    public Result<String> createDownloadUrl(@PathVariable(value = "shareId") @VerifyParams(required = true) String shareId,
+                                            @PathVariable(value = "fileId") @VerifyParams(required = true) String fileId) {
+        FileShare fileShare = fileShareService.getBaseMapper().selectById(shareId);
+        if (fileShare == null) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        String downloadUrl = fileInfoService.createDownloadUrl(fileId, fileShare.getUserId());
+        return Result.data(downloadUrl);
+    }
+
+    @GetMapping(value = "/download/{code}")
+    @GlobalInterceptor(checkLoing = false, checkParams = true)
+    public Result<?> downloadFile(HttpServletResponse response,
+                                  @PathVariable(value = "code") @VerifyParams(required = true) String code) {
+        fileInfoService.downloadFile(code, response);
+        return Result.ok();
     }
 
     private WebShareInfoVO getWebShareInfoById(String shareId) {

@@ -274,7 +274,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             return;
         }
         String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
-        // 兼容管理端 接口
+        // 兼容管理端和外部分享端 获取文件内容接口
         if (userId == null && token.length() == CodeConstants.LENGTH_10) {
             userId = token;
         }
@@ -282,7 +282,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         if (fileInfo == null) {
             // 请求的是ts文件
             String realFileId = fileId.split("-")[0];
-            fileInfo = infoService.getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, realFileId).eq(FileInfo::getUserId, userId));
+            fileInfo = infoService.getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, realFileId));
             targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0] + File.separator + fileId;
         } else if (fileInfo.getFileType().intValue() == FileTypeEnums.VIDEO.getType().intValue()) {
             // 获取m3u8索引文件
@@ -334,6 +334,10 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
         if (StringTools.isEmpty(path)) {
             return null;
+        }
+        // 兼容外部分享端 获取路径信心接口
+        if (userId == null && token.length() == CodeConstants.LENGTH_10) {
+            userId = token;
         }
         String[] paths = path.split("/");
         String join = StringUtils.join(paths, "\",\"");
@@ -402,7 +406,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     @Override
     public String createDownloadUrl(String fileId, String token) {
         String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
-        // admin管理端
+        // 兼容管理端和外部分享端的 下载功能
         if (userId == null && token.length() == CodeConstants.LENGTH_10) {
             userId = token;
         }
@@ -511,7 +515,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         }
     }
 
-    private String rename(String filePid, String userId, String fileName) {
+    public String rename(String filePid, String userId, String fileName) {
         LambdaQueryWrapper<FileInfo> fileQueryWrapper = new LambdaQueryWrapper<>();
         fileQueryWrapper.eq(FileInfo::getFilePid, filePid);
         fileQueryWrapper.eq(FileInfo::getUserId, userId);
@@ -527,7 +531,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     }
 
 
-    private void updateUserSpace(String userId, Long useSpace, Long totalSpace) {
+    public void updateUserSpace(String userId, Long useSpace, Long totalSpace) {
         UserSpaceVO userSpaceVO = JSON.parseObject(stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId), UserSpaceVO.class);
         // 更新使用空间
         if (totalSpace == null) {
