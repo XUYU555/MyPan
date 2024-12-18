@@ -2,7 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.xxyy.mapper.UserInfoMapper">
     <update id="updateUserSpace">
-        UPDATE user_info
+        update user_info
         <set>
             <if test="useSpace != null">
                 use_space = use_space + #{useSpace}
@@ -11,12 +11,12 @@
                 total_space = #{totalSpace}
             </if>
         </set>
-        WHERE user_id = #{userId}
+        where user_id = #{userId}
         <if test="useSpace != null">
-            <![CDATA[ AND (use_space + #{useSpace}) <= total_space ]]>
+            <![CDATA[ and (use_space + #{useSpace}) <= total_space ]]>
         </if>
         <if test="totalSpace != null">
-            <![CDATA[ AND #{totalSpace} >= use_space ]]>
+            <![CDATA[ and #{totalSpace} >= use_space ]]>
         </if>
     </update>
 </mapper>

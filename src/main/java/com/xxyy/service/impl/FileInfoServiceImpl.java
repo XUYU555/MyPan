@@ -17,13 +17,6 @@ import com.xxyy.utils.ProcessUtils;
 import com.xxyy.utils.RedisConstants;
 import com.xxyy.utils.StringTools;
 import com.xxyy.utils.common.AppException;
-import com.xxyy.utils.common.CustomMinioClient;
-import io.minio.BucketExistsArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.PutObjectArgs;
-import io.minio.PutObjectBaseArgs;
-import io.minio.errors.*;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -46,8 +39,6 @@ import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -65,14 +56,8 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     @Value("${project.folder}")
     private String projectFile;
 
-    @Value("${minio.bucket}")
-    private String bucket;
-
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-
-    @Resource
-    private CustomMinioClient customMinioClient;
 
     @Resource
     private UserInfoMapper userInfoMapper;
@@ -109,78 +94,11 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         return PagingQueryVO.of(pageResult);
     }
 
-    /**
-     * 上传单个文件
-     * @param upLoadFileDTO
-     * @param token
-     * @return
-     */
-
-    @Transactional(rollbackFor = Exception.class)
-    public UploadFileVO uploadFile2Minio(UploadFileDTO upLoadFileDTO, String token) {
-        // 获取用户id，查询用户空间
-        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
-        UserSpaceVO userSpaceVO = JSON.parseObject(stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId), UserSpaceVO.class);
-        if(upLoadFileDTO.getFile().getSize() + userSpaceVO.getUseSpace() > userSpaceVO.getTotalSpace()) {
-            throw new AppException(ResponseCodeEnums.CODE_904);
-        }
-        Date curDate = new Date();
-        try(InputStream inputStream = upLoadFileDTO.getFile().getInputStream()) {
-            if (!customMinioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
-                log.info("create bucket: [{}]", bucket);
-                customMinioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
-            }
-            String month = new SimpleDateFormat("YYYYMM").format(curDate);
-            String fileSuffix = StringTools.getFileSuffix(upLoadFileDTO.getFileName());
-            FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
-            String filePath = month + "/" + userId + upLoadFileDTO.getFileId() + "." + fileSuffix;
-            // 发送http请求上传到minio中
-            customMinioClient.putObject(PutObjectArgs.builder()
-                    .stream(inputStream,upLoadFileDTO.getFile().getSize(), -1)
-                    .bucket(bucket)
-                    .object(filePath)
-                    .contentType(upLoadFileDTO.getFile().getContentType())
-                    .build());
-            // 将FileInfo存入数据库
-            FileInfo fileInfo = new FileInfo();
-            fileInfo.setUserId(userId);
-            fileInfo.setFilePid(upLoadFileDTO.getFilePid());
-            fileInfo.setFileName(upLoadFileDTO.getFileName());
-            fileInfo.setFileMd5(upLoadFileDTO.getFileMd5());
-            fileInfo.setFileId(upLoadFileDTO.getFileId());
-            fileInfo.setFileType(fileTypeEnums.getType());
-            fileInfo.setCreateTime(curDate);
-            fileInfo.setLastUpdateTime(curDate);
-            fileInfo.setFileSize(upLoadFileDTO.getFile().getSize());
-            fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
-            // 设置文件为转码中，当文件分片合并完毕时修改
-            fileInfo.setStatus(FileStatusEnums.USING.getCode());
-            fileInfo.setFolderType(FolderTypeEnums.DOCUMENT.getType());
-            fileInfo.setFileCategory(fileTypeEnums.getCategory().getCode());
-            fileInfo.setFilePath(filePath);
-            save(fileInfo);
-            // 更新用户使用空间
-            userInfoMapper.updateUserSpace(userId, fileInfo.getFileSize(), null);
-            updateUserSpace(userId, fileInfo.getFileSize(), null);
-            return new UploadFileVO(upLoadFileDTO.getFileId(), UploadStatusEnums.UPLOAD_FINISH.getCode());
-        } catch (ServerException | InternalException | XmlParserException | InvalidResponseException |
-                 InvalidKeyException | NoSuchAlgorithmException | IOException | ErrorResponseException |
-                 InsufficientDataException | AppException e) {
-            log.error("当个文件上传失败，文件名为:{}", upLoadFileDTO.getFileName(), e);
-            throw new AppException(ResponseCodeEnums.CODE_500);
-        }
-    }
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UploadFileVO uploadFile(UploadFileDTO upLoadFileDTO, String token) {
-        // 判断文件名是否为空
-        if(StringTools.isEmpty(upLoadFileDTO.getFileId())) {
+        if (StringTools.isEmpty(upLoadFileDTO.getFileId())) {
             upLoadFileDTO.setFileId(StringTools.getRandomString(CodeConstants.LENGTH_10));
-        }
-        // 小于5MB文件上传(单个文件)
-        if (upLoadFileDTO.getChunks() == 1) {
-            return uploadFile2Minio(upLoadFileDTO, token);
         }
         boolean uploadSuccess = true;
         String path = null;
@@ -259,7 +177,6 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                     dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + CodeConstants.IMAGE_FILE_SUFFIX;
                 }
                 // 将FileInfo存入数据库
-                Long totalUseSize = getCurSize(userId, upLoadFileDTO.getFileId());
                 FileInfo fileInfo = new FileInfo();
                 fileInfo.setUserId(userId);
                 fileInfo.setFilePid(upLoadFileDTO.getFilePid());
@@ -270,14 +187,14 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 fileInfo.setCreateTime(curDate);
                 fileInfo.setLastUpdateTime(curDate);
                 fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
-                // 设置文件为转码中，当文件分片合并完毕时修改
+                // 设置文件为转码中，当文件分片合并完毕是修改
                 fileInfo.setStatus(FileStatusEnums.TRANSFER.getCode());
                 fileInfo.setFolderType(FolderTypeEnums.DOCUMENT.getType());
                 fileInfo.setFileCategory(fileTypeEnums.getCategory().getCode());
-                fileInfo.setFileSize(totalUseSize);
                 fileInfo.setFilePath(dbPath);
                 save(fileInfo);
                 // 更新用户使用空间
+                Long totalUseSize = getCurSize(userId, upLoadFileDTO.getFileId());
                 updateUserSpace(userId, totalUseSize, null);
                 userInfoMapper.updateUserSpace(userId, totalUseSize, null);
                 // 设置上传完成

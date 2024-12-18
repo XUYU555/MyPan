@@ -92,9 +92,4 @@ admin:
 #  qq.url.redirect=http://easypan.wuhancoder.com/qqlogincalback
 mybatis-plus:
   type-aliases-package: com.xxyy.entity
-minio:
-    url: http://localhost:9000
-    access-key: egloWHzpzF4ZHbskU2e7
-    secret-key: Og7okr9JM2Dbyp7GMkkWZYKUGm0nZDmt8gBTzrK2
-    bucket: upload-test
 
