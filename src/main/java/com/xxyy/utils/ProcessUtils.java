@@ -4,10 +4,8 @@ import com.xxyy.utils.common.AppException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -26,7 +24,8 @@ public class ProcessUtils {
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(command);
             Process process = processBuilder.start();
-            // 处理执行cmd命令返回结果
+
+            // 处理标准输出
             Thread inputThread = new Thread(() -> {
                 InputStream input = null;
                 InputStreamReader reader = null;
@@ -37,9 +36,8 @@ public class ProcessUtils {
                     buffer = new BufferedReader(reader);
                     String inputLine = "";
                     while((inputLine = buffer.readLine()) != null) {
-                        inputStringBuffer.append(inputLine);
+                        inputStringBuffer.append(inputLine).append("\n");
                     }
-                    logger.info("视频转化完成命令为{},结果为{}", command, inputStringBuffer);
                 } catch (IOException e) {
                     logger.error("读取cmd命令失败", e);
                     throw new AppException("读取命令失败");
@@ -62,7 +60,7 @@ public class ProcessUtils {
             inputThread.setName("ffmpeg:inputStream");
             inputThread.start();
 
-            // 处理执行失败，异常输出
+            // 处理错误输出
             Thread errorThread = new Thread(() -> {
                 InputStream input = null;
                 InputStreamReader reader = null;
@@ -73,9 +71,8 @@ public class ProcessUtils {
                     buffer = new BufferedReader(reader);
                     String errorLine = "";
                     while((errorLine = buffer.readLine()) != null) {
-                        errorStringBuffer.append(errorLine);
+                        errorStringBuffer.append(errorLine).append("\n");
                     }
-                    logger.info("视频转化失败命令为{},结果为{}", command, errorStringBuffer);
                 } catch (IOException e) {
                     logger.error("读取cmd命令失败", e);
                     throw new AppException("读取命令失败");
@@ -98,23 +95,24 @@ public class ProcessUtils {
             errorThread.setName("ffmpeg:error");
             errorThread.start();
 
-            // 这里进程阻塞，将等待外部转换成功后，才往下执行
+            // 等待进程结束并获取退出状态
             process.waitFor();
-            errorThread.join();
             inputThread.join();
+            errorThread.join();
 
-            if (inputStringBuffer.length() > 0) {
-                return inputStringBuffer.toString();
-            } else {
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                // 如果命令失败，将错误信息返回
+                logger.error("命令执行失败，退出状态码为{}", exitCode);
                 return errorStringBuffer.toString();
             }
-        } catch (IOException e) {
-            logger.error("IO流错误", e);
-            throw new AppException("cmd命令执行失败");
-        } catch (InterruptedException e) {
-            logger.error("线程阻塞错误", e);
+
+            // 返回标准输出
+            return inputStringBuffer.length() > 0 ? inputStringBuffer.toString() : errorStringBuffer.toString();
+        } catch (IOException | InterruptedException e) {
+            logger.error("命令执行失败", e);
             throw new AppException("cmd命令执行失败");
         }
-
     }
+
 }

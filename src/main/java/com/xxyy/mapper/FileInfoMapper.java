@@ -27,7 +27,7 @@ public interface FileInfoMapper extends MPJBaseMapper<FileInfo> {
         return query.eq("user_id", userId).in("file_id", ids)
                 .eq("del_flag", FileDelFlagEnums.RECOVERY.getCode())
                 .eq(folderTypeEnums != FolderTypeEnums.ALL, "folder_type", folderTypeEnums.getType())
-                .eq("status", FileStatusEnums.USING.getCode())
+                .in("status", FileStatusEnums.USING.getCode(), FileStatusEnums.TRANSFER_FAIL.getCode())
                 .list();
     }
 
@@ -35,7 +35,8 @@ public interface FileInfoMapper extends MPJBaseMapper<FileInfo> {
     default List<FileInfo> findUsingFileList(String userId, List<String> ids, FolderTypeEnums folderTypeEnums) {
         QueryChainWrapper<FileInfo> query = ChainWrappers.queryChain(this);
         return query.eq("user_id", userId).in("file_id", ids)
-                .eq("status", FileStatusEnums.USING.getCode()).eq("folder_type", folderTypeEnums.getType())
+                .eq("folder_type", folderTypeEnums.getType())
+                .in("status", FileStatusEnums.USING.getCode(), FileStatusEnums.TRANSFER_FAIL.getCode())
                 .eq("del_flag", FileDelFlagEnums.NORMAL.getCode()).list();
     }
 
