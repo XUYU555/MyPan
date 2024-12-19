@@ -612,6 +612,11 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                     executorService.submit(() -> {
                         try {
                             minioClientUtils.uploadM3U8File(file, filePath + "/" + file.getName());
+                            // 删除文件
+                            boolean delete = file.delete();
+                            if (!delete) {
+                                log.debug("文件：{}删除成功", file.getPath());
+                            }
                         } catch (Exception e) {
                             log.error("上传视频分片文件 {} 失败", file.getPath(), e);
                             throw new AppException(ResponseCodeEnums.CODE_500);
@@ -624,7 +629,14 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 // 将缩略图上传到minio中
                 minioClientUtils.uploadFile(targetPath, cover);
             }
-
+            boolean deleteCover = new File(targetPath + "/" + cover.split("/")[1]).delete();
+            if (!deleteCover) {
+                log.debug("封面文件：{}删除失败", targetPath + "/" + cover.split("/")[1]);
+            }
+            boolean deleteSource = new File(targetPath + "/" + fileInfo.getFilePath().split("/")[1]).delete();
+            if (!deleteSource) {
+                log.debug("源文件：{}删除失败", targetPath + "/" + fileInfo.getFilePath().split("/")[1]);
+            }
         } catch (Exception e) {
             mergeFilesSuccess = false;
             log.error("文件转码失败,文件Id:{},用户Id:{}", fileId,  userId, e);
