@@ -12,18 +12,8 @@ import com.xxyy.entity.vo.*;
 import com.xxyy.mapper.FileInfoMapper;
 import com.xxyy.mapper.UserInfoMapper;
 import com.xxyy.service.IFileInfoService;
-import com.xxyy.utils.CodeConstants;
-import com.xxyy.utils.ProcessUtils;
-import com.xxyy.utils.RedisConstants;
-import com.xxyy.utils.StringTools;
+import com.xxyy.utils.*;
 import com.xxyy.utils.common.AppException;
-import com.xxyy.utils.common.CustomMinioClient;
-import io.minio.BucketExistsArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.PutObjectArgs;
-import io.minio.PutObjectBaseArgs;
-import io.minio.errors.*;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -46,11 +36,9 @@ import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 /**
@@ -65,14 +53,11 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     @Value("${project.folder}")
     private String projectFile;
 
-    @Value("${minio.bucket}")
-    private String bucket;
+    @Resource
+    private MinioClientUtils minioClientUtils;
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-
-    @Resource
-    private CustomMinioClient customMinioClient;
 
     @Resource
     private UserInfoMapper userInfoMapper;
@@ -81,6 +66,12 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     @Autowired
     @Lazy
     FileInfoServiceImpl infoService;
+
+    private static final ExecutorService executorService;
+    static {
+        executorService = new ThreadPoolExecutor(6, 10, 1L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(10), new ThreadPoolExecutor.CallerRunsPolicy());
+    }
 
     @Override
     public PagingQueryVO<FileInfoVO> pageQueryFile(FileQueryDTO fileQueryDTO, String token) {
@@ -109,66 +100,17 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         return PagingQueryVO.of(pageResult);
     }
 
-    /**
-     * 上传单个文件
-     * @param upLoadFileDTO
-     * @param token
-     * @return
-     */
-
-    @Transactional(rollbackFor = Exception.class)
-    public UploadFileVO uploadFile2Minio(UploadFileDTO upLoadFileDTO, String token) {
-        // 获取用户id，查询用户空间
-        String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
-        UserSpaceVO userSpaceVO = JSON.parseObject(stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId), UserSpaceVO.class);
-        if(upLoadFileDTO.getFile().getSize() + userSpaceVO.getUseSpace() > userSpaceVO.getTotalSpace()) {
-            throw new AppException(ResponseCodeEnums.CODE_904);
-        }
-        Date curDate = new Date();
-        try(InputStream inputStream = upLoadFileDTO.getFile().getInputStream()) {
-            if (!customMinioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
-                log.info("create bucket: [{}]", bucket);
-                customMinioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
-            }
-            String month = new SimpleDateFormat("YYYYMM").format(curDate);
-            String fileSuffix = StringTools.getFileSuffix(upLoadFileDTO.getFileName());
-            FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
-            String filePath = month + "/" + userId + upLoadFileDTO.getFileId() + "." + fileSuffix;
-            // 发送http请求上传到minio中
-            customMinioClient.putObject(PutObjectArgs.builder()
-                    .stream(inputStream,upLoadFileDTO.getFile().getSize(), -1)
-                    .bucket(bucket)
-                    .object(filePath)
-                    .contentType(upLoadFileDTO.getFile().getContentType())
-                    .build());
-            // 将FileInfo存入数据库
-            FileInfo fileInfo = new FileInfo();
-            fileInfo.setUserId(userId);
-            fileInfo.setFilePid(upLoadFileDTO.getFilePid());
-            fileInfo.setFileName(upLoadFileDTO.getFileName());
-            fileInfo.setFileMd5(upLoadFileDTO.getFileMd5());
-            fileInfo.setFileId(upLoadFileDTO.getFileId());
-            fileInfo.setFileType(fileTypeEnums.getType());
-            fileInfo.setCreateTime(curDate);
-            fileInfo.setLastUpdateTime(curDate);
-            fileInfo.setFileSize(upLoadFileDTO.getFile().getSize());
-            fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
-            // 设置文件为转码中，当文件分片合并完毕时修改
-            fileInfo.setStatus(FileStatusEnums.USING.getCode());
-            fileInfo.setFolderType(FolderTypeEnums.DOCUMENT.getType());
-            fileInfo.setFileCategory(fileTypeEnums.getCategory().getCode());
-            fileInfo.setFilePath(filePath);
-            save(fileInfo);
-            // 更新用户使用空间
-            userInfoMapper.updateUserSpace(userId, fileInfo.getFileSize(), null);
-            updateUserSpace(userId, fileInfo.getFileSize(), null);
-            return new UploadFileVO(upLoadFileDTO.getFileId(), UploadStatusEnums.UPLOAD_FINISH.getCode());
-        } catch (ServerException | InternalException | XmlParserException | InvalidResponseException |
-                 InvalidKeyException | NoSuchAlgorithmException | IOException | ErrorResponseException |
-                 InsufficientDataException | AppException e) {
-            log.error("当个文件上传失败，文件名为:{}", upLoadFileDTO.getFileName(), e);
-            throw new AppException(ResponseCodeEnums.CODE_500);
-        }
+    private FileInfo createFileInfo(UploadFileDTO upLoadFileDTO, String userId, Date curDate, FileTypeEnums fileTypeEnums, String fileId) {
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setUserId(userId);
+        fileInfo.setFilePid(upLoadFileDTO.getFilePid());
+        fileInfo.setFileName(upLoadFileDTO.getFileName());
+        fileInfo.setFileMd5(upLoadFileDTO.getFileMd5());
+        fileInfo.setFileId(fileId);
+        fileInfo.setFileType(fileTypeEnums.getType());
+        fileInfo.setCreateTime(curDate);
+        fileInfo.setLastUpdateTime(curDate);
+        return fileInfo;
     }
 
     @Override
@@ -177,10 +119,6 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         // 判断文件名是否为空
         if(StringTools.isEmpty(upLoadFileDTO.getFileId())) {
             upLoadFileDTO.setFileId(StringTools.getRandomString(CodeConstants.LENGTH_10));
-        }
-        // 小于5MB文件上传(单个文件)
-        if (upLoadFileDTO.getChunks() == 1) {
-            return uploadFile2Minio(upLoadFileDTO, token);
         }
         boolean uploadSuccess = true;
         String path = null;
@@ -253,6 +191,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 // 最后一片数据，进行分片合并
                 String fileSuffix = StringTools.getFileSuffix(upLoadFileDTO.getFileName());
                 FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
+
                 String month = new SimpleDateFormat("YYYYMM").format(curDate);
                 String dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + "." + fileSuffix;
                 if (CodeConstants.CN_TUPIAN.equals(fileTypeEnums.getDesc())) {
@@ -260,15 +199,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 }
                 // 将FileInfo存入数据库
                 Long totalUseSize = getCurSize(userId, upLoadFileDTO.getFileId());
-                FileInfo fileInfo = new FileInfo();
-                fileInfo.setUserId(userId);
-                fileInfo.setFilePid(upLoadFileDTO.getFilePid());
-                fileInfo.setFileName(upLoadFileDTO.getFileName());
-                fileInfo.setFileMd5(upLoadFileDTO.getFileMd5());
-                fileInfo.setFileId(uploadFileVO.getFileId());
-                fileInfo.setFileType(fileTypeEnums.getType());
-                fileInfo.setCreateTime(curDate);
-                fileInfo.setLastUpdateTime(curDate);
+                FileInfo fileInfo = createFileInfo(upLoadFileDTO, userId, curDate, fileTypeEnums, uploadFileVO.getFileId());
                 fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
                 // 设置文件为转码中，当文件分片合并完毕时修改
                 fileInfo.setStatus(FileStatusEnums.TRANSFER.getCode());
@@ -656,7 +587,8 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             if (fileInfo == null || !Objects.equals(fileInfo.getStatus(), FileStatusEnums.TRANSFER.getCode())) {
                 return;
             }
-            targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("/")[0];
+            String directory = fileInfo.getFilePath();
+            targetPath = projectFile + CodeConstants.FILE + directory.split("/")[0];
             File targetFile = new File(targetPath);
             if (!targetFile.exists()) {
                 targetFile.mkdirs();
@@ -664,16 +596,35 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             String sourcePath = projectFile + CodeConstants.TEMP_FILE + userId + "/" + fileId + "/";
             // 合并分片文件
             union(targetFile, sourcePath, fileInfo.getFilePath().split("/")[1], true);
+            // 上传原文件到minio
+            minioClientUtils.uploadFile(targetPath, fileInfo.getFilePath());
             // TODO: 2024/9/24 视频切割
             if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.VIDEO.getType())) {
                 // 如果是视频文件，需要视频切割
                 videoCutting(fileId, userId);
                 // 生成视频封面缩略图
                 cover = coverThumbnail(targetPath, fileId, userId);
+                // 将缩略图上传到minio中
+                minioClientUtils.uploadFile(targetPath, cover);
+                String filePath = fileInfo.getFilePath().split("\\.")[0];
+                File cutDirectory = new File(projectFile + CodeConstants.FILE + filePath);
+                for (File file : cutDirectory.listFiles()) {
+                    executorService.submit(() -> {
+                        try {
+                            minioClientUtils.uploadM3U8File(file, filePath + "/" + file.getName());
+                        } catch (Exception e) {
+                            log.error("上传视频分片文件 {} 失败", file.getPath(), e);
+                            throw new AppException(ResponseCodeEnums.CODE_500);
+                        }
+                    });
+                }
             } else if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.IMAGE.getType())){
                 //  todo 是图片，则添加图片缩略图
                 cover = coverThumbnail(targetPath, fileId, userId);
+                // 将缩略图上传到minio中
+                minioClientUtils.uploadFile(targetPath, cover);
             }
+
         } catch (Exception e) {
             mergeFilesSuccess = false;
             log.error("文件转码失败,文件Id:{},用户Id:{}", fileId,  userId, e);
