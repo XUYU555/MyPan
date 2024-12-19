@@ -58,7 +58,7 @@ spring:
         debug: true  # 开启调试日志
 #  redis配置
   redis:
-    database: 0
+    database: 1
     host: 192.168.129.135
     port: 6379
 #    连接池配置

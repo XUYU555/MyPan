@@ -4,8 +4,10 @@ import com.xxyy.entity.enums.ResponseCodeEnums;
 import com.xxyy.utils.common.AppException;
 import com.xxyy.utils.common.CustomMinioClient;
 import io.minio.BucketExistsArgs;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.PutObjectArgs;
+import io.minio.http.Method;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -14,6 +16,7 @@ import javax.annotation.Resource;
 import java.io.File;
 import java.io.FileInputStream;
 import java.net.URLConnection;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -42,7 +45,7 @@ public class MinioClientUtils {
                     .object(filePath)
                     .bucket(bucket)
                     .stream(inputStream, file.length(), -1)
-                    .contentType(contentType)
+                    .contentType(contentType == null? "application/octet-stream": contentType)
                     .build());
         } catch (Exception e) {
             log.error("文件：{} 上传失败", file.getPath(), e);
@@ -67,6 +70,20 @@ public class MinioClientUtils {
             log.error("切片文件：{} 上传失败", sourceFile.getPath(), e);
             throw new AppException(ResponseCodeEnums.CODE_500);
         }
+    }
+
+    public String getPresignedUrl(String targetPath) throws Exception {
+        if (!customMinioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
+            log.info("创建桶：{}", bucket);
+            customMinioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+        }
+        return customMinioClient.getPresignedObjectUrl(
+                GetPresignedObjectUrlArgs.builder()
+                .bucket(bucket)
+                .object(targetPath)
+                .method(Method.GET)
+                .expiry(1, TimeUnit.DAYS)
+                .build());
     }
 
     private String contentTypeFromName(String fileName) {

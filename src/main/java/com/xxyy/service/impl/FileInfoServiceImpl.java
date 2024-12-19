@@ -244,29 +244,18 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     }
 
     @Override
-    public void getImage(HttpServletResponse response, String folder, String fileName) {
+    public String  getImage(HttpServletResponse response, String folder, String fileName) {
         String targetPath = projectFile + CodeConstants.FILE + folder + "/" + fileName;
         if (targetPath.contains("../") || targetPath.contains("..\\")) {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            return;
+            return "";
         }
-        File file = new File(targetPath);
-        if (!file.exists()) {
-            throw new AppException("文件不存在");
-        }
-        response.setContentType("image/jpeg");
-        response.setHeader("Cache-Control", "max-age=2592000");
-        try (FileInputStream inputStream = new FileInputStream(file);
-             ServletOutputStream outputStream = response.getOutputStream()){
-            int len = 0;
-            byte[] bytes = new byte[1024];
-            while((len = inputStream.read(bytes)) != -1) {
-                outputStream.write(bytes, 0, len);
-            }
-            // 确保刷新并关闭
-            outputStream.flush();
-        } catch (IOException e) {
-            throw new AppException("写入或读取文件失败");
+        String minioPath = folder + "/" + fileName;
+        try {
+            return minioClientUtils.getPresignedUrl(minioPath);
+        } catch (Exception e) {
+            log.error("获取图片文件：{}失败 ", minioPath, e);
+            throw new AppException(ResponseCodeEnums.CODE_500);
         }
     }
 
@@ -629,13 +618,16 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 // 将缩略图上传到minio中
                 minioClientUtils.uploadFile(targetPath, cover);
             }
-            boolean deleteCover = new File(targetPath + "/" + cover.split("/")[1]).delete();
-            if (!deleteCover) {
-                log.debug("封面文件：{}删除失败", targetPath + "/" + cover.split("/")[1]);
-            }
-            boolean deleteSource = new File(targetPath + "/" + fileInfo.getFilePath().split("/")[1]).delete();
-            if (!deleteSource) {
-                log.debug("源文件：{}删除失败", targetPath + "/" + fileInfo.getFilePath().split("/")[1]);
+            // 图片与视频文件才需要处理
+            if(cover != null) {
+                boolean deleteCover = new File(targetPath + "/" + cover.split("/")[1]).delete();
+                if (!deleteCover) {
+                    log.debug("封面文件：{}删除失败", targetPath + "/" + cover.split("/")[1]);
+                }
+                boolean deleteSource = new File(targetPath + "/" + fileInfo.getFilePath().split("/")[1]).delete();
+                if (!deleteSource) {
+                    log.debug("源文件：{}删除失败", targetPath + "/" + fileInfo.getFilePath().split("/")[1]);
+                }
             }
         } catch (Exception e) {
             mergeFilesSuccess = false;

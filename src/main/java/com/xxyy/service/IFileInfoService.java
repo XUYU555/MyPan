@@ -21,7 +21,7 @@ public interface IFileInfoService extends IService<FileInfo> {
 
     UploadFileVO uploadFile(UploadFileDTO upLoadFileDTO, String token);
 
-    void getImage(HttpServletResponse response, String folder, String fileName);
+    String getImage(HttpServletResponse response, String folder, String fileName);
 
     void getFile(HttpServletResponse response, String fileId, String token);
 
