@@ -24,4 +24,6 @@ public class RedisConstants {
     public final static String MYPAN_FILE_TEMP_SIZE = "mypan:file:temp:size:";
 
     public final static String MYPAN_DOWNLOAD_CODE = "mypan:download:code:";
+
+    public final static String MYPAN_PRESIGNEDURL_IMG = "mypan:presignedurl:img:";
 }

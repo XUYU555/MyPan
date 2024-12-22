@@ -47,7 +47,7 @@ public class FileInfoController {
     @PostMapping(value = "/getImage/{imageFolder}/{imageName}")
     public Result<String> getImage(HttpServletResponse response, @PathVariable(name = "imageFolder")String folder,
                          @PathVariable(name = "imageName")String fileName) {
-        return Result.data(fileService.getImage(response, folder, fileName));
+        return Result.data(fileService.getImage(folder, fileName));
     }
 
     @GetMapping(value = "/ts/getVideoInfo/{fileId}")

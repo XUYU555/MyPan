@@ -116,7 +116,6 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UploadFileVO uploadFile(UploadFileDTO upLoadFileDTO, String token) {
-        // 判断文件名是否为空
         if(StringTools.isEmpty(upLoadFileDTO.getFileId())) {
             upLoadFileDTO.setFileId(StringTools.getRandomString(CodeConstants.LENGTH_10));
         }
@@ -125,7 +124,6 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         try {
             UploadFileVO uploadFileVO = new UploadFileVO();
             uploadFileVO.setFileId(upLoadFileDTO.getFileId());
-            // 获取当前时间
             Date curDate = new Date();
             // 获得用户使用空间
             String userId = (String) stringRedisTemplate.opsForHash().entries(RedisConstants.MYPAN_LOGIN_USER_KEY + token).get("userId");
@@ -162,7 +160,6 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                     return uploadFileVO;
                 }
             }
-
             path = projectFile + CodeConstants.TEMP_FILE + userId + "/" + uploadFileVO.getFileId() + "/";
             // 分片传输数据
             // 判断临时数据是否超过剩余空间
@@ -191,13 +188,11 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 // 最后一片数据，进行分片合并
                 String fileSuffix = StringTools.getFileSuffix(upLoadFileDTO.getFileName());
                 FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
-
                 String month = new SimpleDateFormat("YYYYMM").format(curDate);
                 String dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + "." + fileSuffix;
                 if (CodeConstants.CN_TUPIAN.equals(fileTypeEnums.getDesc())) {
                     dbPath = month + "/" + userId + upLoadFileDTO.getFileId() + CodeConstants.IMAGE_FILE_SUFFIX;
                 }
-                // 将FileInfo存入数据库
                 Long totalUseSize = getCurSize(userId, upLoadFileDTO.getFileId());
                 FileInfo fileInfo = createFileInfo(upLoadFileDTO, userId, curDate, fileTypeEnums, uploadFileVO.getFileId());
                 fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
@@ -244,15 +239,20 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
     }
 
     @Override
-    public String  getImage(HttpServletResponse response, String folder, String fileName) {
-        String targetPath = projectFile + CodeConstants.FILE + folder + "/" + fileName;
-        if (targetPath.contains("../") || targetPath.contains("..\\")) {
-            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+    public String  getImage(String folder, String fileName) {
+        String minioPath = folder + "/" + fileName;
+        if (minioPath.contains("../") || minioPath.contains("..\\")) {
             return "";
         }
-        String minioPath = folder + "/" + fileName;
+        String redisKey = RedisConstants.MYPAN_PRESIGNEDURL_IMG + minioPath;
+        String url = stringRedisTemplate.opsForValue().get(redisKey);
+        if (!StringTools.isEmpty(url)) {
+            return url;
+        }
         try {
-            return minioClientUtils.getPresignedUrl(minioPath);
+            String presignedUrl = minioClientUtils.getPresignedUrl(minioPath);
+            stringRedisTemplate.opsForValue().set(redisKey, presignedUrl, 6, TimeUnit.HOURS);
+            return presignedUrl;
         } catch (Exception e) {
             log.error("获取图片文件：{}失败 ", minioPath, e);
             throw new AppException(ResponseCodeEnums.CODE_500);
@@ -286,20 +286,16 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             // 请求的是ts文件
             String realFileId = fileId.split("-")[0];
             fileInfo = infoService.getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, realFileId));
-            targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0] + File.separator + fileId;
+            targetPath = fileInfo.getFilePath().split("\\.")[0] + "/" + fileId;
         } else if (fileInfo.getFileType().intValue() == FileTypeEnums.VIDEO.getType().intValue()) {
             // 获取m3u8索引文件
-            targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0] + File.separator + CodeConstants.M3U8_NAME;
+            targetPath = fileInfo.getFilePath().split("\\.")[0] + "/" + CodeConstants.M3U8_NAME;
         } else {
             // 其他文件
-            targetPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath();
+            targetPath = fileInfo.getFilePath();
         }
-        File file = new File(targetPath);
-        if (!file.exists()) {
-            return;
-        }
-        try (FileInputStream inputStream = new FileInputStream(file);
-             ServletOutputStream outputStream = response.getOutputStream()){
+        try(InputStream inputStream = minioClientUtils.downloadFile(targetPath);
+            ServletOutputStream outputStream = response.getOutputStream()) {
             int len = 0;
             byte[] bytes = new byte[1024];
             while((len = inputStream.read(bytes)) != -1) {
@@ -309,6 +305,8 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             outputStream.flush();
         } catch (IOException e) {
             throw new AppException("写入或读取文件失败");
+        } catch (Exception e) {
+            throw new AppException(ResponseCodeEnums.CODE_500);
         }
     }
 
@@ -583,17 +581,12 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                 targetFile.mkdirs();
             }
             String sourcePath = projectFile + CodeConstants.TEMP_FILE + userId + "/" + fileId + "/";
-            // 合并分片文件
             union(targetFile, sourcePath, fileInfo.getFilePath().split("/")[1], true);
-            // 上传原文件到minio
             minioClientUtils.uploadFile(targetPath, fileInfo.getFilePath());
-            // TODO: 2024/9/24 视频切割
             if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.VIDEO.getType())) {
-                // 如果是视频文件，需要视频切割
+                // 处理视频文件
                 videoCutting(fileId, userId);
-                // 生成视频封面缩略图
                 cover = coverThumbnail(targetPath, fileId, userId);
-                // 将缩略图上传到minio中
                 minioClientUtils.uploadFile(targetPath, cover);
                 String filePath = fileInfo.getFilePath().split("\\.")[0];
                 File cutDirectory = new File(projectFile + CodeConstants.FILE + filePath);
@@ -601,10 +594,9 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                     executorService.submit(() -> {
                         try {
                             minioClientUtils.uploadM3U8File(file, filePath + "/" + file.getName());
-                            // 删除文件
                             boolean delete = file.delete();
                             if (!delete) {
-                                log.debug("文件：{}删除成功", file.getPath());
+                                log.debug("分片文件：{}删除成功", file.getPath());
                             }
                         } catch (Exception e) {
                             log.error("上传视频分片文件 {} 失败", file.getPath(), e);
@@ -613,21 +605,19 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
                     });
                 }
             } else if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.IMAGE.getType())){
-                //  todo 是图片，则添加图片缩略图
+                // 处理图片文件
                 cover = coverThumbnail(targetPath, fileId, userId);
-                // 将缩略图上传到minio中
                 minioClientUtils.uploadFile(targetPath, cover);
             }
-            // 图片与视频文件才需要处理
             if(cover != null) {
                 boolean deleteCover = new File(targetPath + "/" + cover.split("/")[1]).delete();
                 if (!deleteCover) {
                     log.debug("封面文件：{}删除失败", targetPath + "/" + cover.split("/")[1]);
                 }
-                boolean deleteSource = new File(targetPath + "/" + fileInfo.getFilePath().split("/")[1]).delete();
-                if (!deleteSource) {
-                    log.debug("源文件：{}删除失败", targetPath + "/" + fileInfo.getFilePath().split("/")[1]);
-                }
+            }
+            boolean deleteSource = new File(targetPath + "/" + fileInfo.getFilePath().split("/")[1]).delete();
+            if (!deleteSource) {
+                log.debug("源文件：{}删除失败", targetPath + "/" + fileInfo.getFilePath().split("/")[1]);
             }
         } catch (Exception e) {
             mergeFilesSuccess = false;

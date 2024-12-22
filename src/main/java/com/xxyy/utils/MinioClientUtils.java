@@ -3,10 +3,7 @@ package com.xxyy.utils;
 import com.xxyy.entity.enums.ResponseCodeEnums;
 import com.xxyy.utils.common.AppException;
 import com.xxyy.utils.common.CustomMinioClient;
-import io.minio.BucketExistsArgs;
-import io.minio.GetPresignedObjectUrlArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.PutObjectArgs;
+import io.minio.*;
 import io.minio.http.Method;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,6 +12,7 @@ import org.springframework.stereotype.Component;
 import javax.annotation.Resource;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.InputStream;
 import java.net.URLConnection;
 import java.util.concurrent.TimeUnit;
 
@@ -82,7 +80,7 @@ public class MinioClientUtils {
                 .bucket(bucket)
                 .object(targetPath)
                 .method(Method.GET)
-                .expiry(1, TimeUnit.DAYS)
+                .expiry(6, TimeUnit.HOURS)
                 .build());
     }
 
@@ -97,4 +95,15 @@ public class MinioClientUtils {
         return "application/octet-stream";
     }
 
+    public InputStream downloadFile(String filePath) throws Exception {
+        GetObjectResponse response = customMinioClient.getObject(GetObjectArgs.builder()
+                .bucket(bucket)
+                .object(filePath)
+                .build());
+        if(response == null) {
+            throw new AppException(ResponseCodeEnums.CODE_500);
+        }
+        InputStream fileInputStream = response;
+        return fileInputStream;
+    }
 }
