@@ -97,6 +97,7 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
             if (fileInfo.getFolderType().intValue() != FolderTypeEnums.FOLDER.getType().intValue()) {
                 allSize += fileInfo.getFileSize();
             }
+            fileInfo.setDelFlag(FileDelFlagEnums.DELETE.getCode());
         }
         // 修改数据库数据
         userInfoMapper.updateUserSpace(userId, -allSize, null);
@@ -109,7 +110,8 @@ public class RecycleBinServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
             stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_LOGIN_USER_SPACE + userId, JSON.toJSONString(userSpaceVO), 1, TimeUnit.HOURS);
         }
         // 删除文件
-        removeByIds(subFileList.stream().map(FileInfo::getFileId).collect(Collectors.toList()));
+        // removeByIds(subFileList.stream().map(FileInfo::getFileId).collect(Collectors.toList()));
+        updateBatchById(subFileList);
     }
 
     private void checkParentFileExist(FileInfo fileInfo) {
