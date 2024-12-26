@@ -17,6 +17,7 @@ import com.xxyy.utils.common.AppException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.checkerframework.checker.units.qual.A;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
@@ -294,7 +295,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
             // 其他文件
             targetPath = fileInfo.getFilePath();
         }
-        try(InputStream inputStream = minioClientUtils.downloadFile(targetPath);
+        try(InputStream inputStream = minioClientUtils.downloadVideoFile(targetPath);
             ServletOutputStream outputStream = response.getOutputStream()) {
             int len = 0;
             byte[] bytes = new byte[1024];
@@ -411,17 +412,22 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         if (userId == null && token.length() == CodeConstants.LENGTH_10) {
             userId = token;
         }
+        String url = stringRedisTemplate.opsForValue().get(RedisConstants.MYPAN_PRESIGNEDURL_FILE + fileId);
+        if (!StringTools.isEmpty(url)) {
+            return url;
+        }
         FileInfo fileInfo = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId).eq(FileInfo::getUserId, userId));
         if (fileInfo == null || fileInfo.getFolderType().intValue() == FolderTypeEnums.FOLDER.getType().intValue()) {
             throw new AppException(ResponseCodeEnums.CODE_600);
         }
-        // 创建下载code，存入redis设置五分钟有效期
-        String code = StringTools.getRandomString(CodeConstants.LENGTH_50);
-        FileDownloadDTO fileDownloadDTO = new FileDownloadDTO();
-        fileDownloadDTO.setFilePath(fileInfo.getFilePath());
-        fileDownloadDTO.setFileName(fileInfo.getFileName());
-        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_DOWNLOAD_CODE + code, JSON.toJSONString(fileDownloadDTO), 5, TimeUnit.MINUTES);
-        return code;
+        String downloadUrl = null;
+        try {
+            downloadUrl = minioClientUtils.createDownloadUrl(fileInfo.getFilePath(), fileInfo.getFileName());
+        } catch (Exception e) {
+            throw new AppException(ResponseCodeEnums.CODE_600);
+        }
+        stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_PRESIGNEDURL_FILE + fileId, downloadUrl, 5, TimeUnit.MINUTES);
+        return downloadUrl;
     }
 
     @Override

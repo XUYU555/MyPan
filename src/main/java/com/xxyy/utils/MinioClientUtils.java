@@ -14,6 +14,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.net.URLConnection;
+import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 
 
@@ -95,7 +96,7 @@ public class MinioClientUtils {
         return "application/octet-stream";
     }
 
-    public InputStream downloadFile(String filePath) throws Exception {
+    public InputStream downloadVideoFile(String filePath) throws Exception {
         GetObjectResponse response = customMinioClient.getObject(GetObjectArgs.builder()
                 .bucket(bucket)
                 .object(filePath)
@@ -105,5 +106,18 @@ public class MinioClientUtils {
         }
         InputStream fileInputStream = response;
         return fileInputStream;
+    }
+
+    public String createDownloadUrl(String filePath, String fileName) throws Exception {
+        HashMap<String, String> map = new HashMap<>();
+        map.put("response-content-disposition", "attachment; filename=" + fileName);
+        String presignedObjectUrl = customMinioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                .bucket(bucket)
+                .object(filePath)
+                .expiry(5, TimeUnit.MINUTES)
+                .method(Method.GET)
+                .extraQueryParams(map)
+                .build());
+        return presignedObjectUrl;
     }
 }
