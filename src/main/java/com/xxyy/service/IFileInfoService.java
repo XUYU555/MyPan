@@ -7,6 +7,7 @@ import com.xxyy.entity.vo.FileInfoVO;
 import com.xxyy.entity.vo.FolderInfoVO;
 import com.xxyy.entity.vo.PagingQueryVO;
 import com.xxyy.entity.vo.UploadFileVO;
+import com.xxyy.utils.common.Result;
 
 import javax.servlet.http.HttpServletResponse;
 import java.util.List;
@@ -41,4 +42,5 @@ public interface IFileInfoService extends IService<FileInfo> {
 
     void removeFile2RecycleBatch(String fileIds, String token);
 
+    void notifyPartUploaded(UploadFileDTO uploadFileDTO, String token);
 }

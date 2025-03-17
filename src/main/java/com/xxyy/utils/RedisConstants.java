@@ -28,4 +28,6 @@ public class RedisConstants {
     public final static String MYPAN_PRESIGNEDURL_IMG = "mypan:presignedurl:img:";
 
     public final static String MYPAN_PRESIGNEDURL_FILE = "mypan:presignedurl:file:";
+
+    public final static String MYPAN_MERGEFILE_RETRY = "mypan:mergefile:retry:";
 }

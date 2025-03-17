@@ -133,5 +133,13 @@ public class FileInfoController {
         return Result.ok();
     }
 
+    @PostMapping(value = "/notifyChunkUploaded")
+    @GlobalInterceptor(checkParams = true)
+    public Result<?> notifyPartUploaded(@ModelAttribute UploadFileDTO uploadFileDTO, HttpServletRequest request) {
+        String token = request.getHeader("authorization");
+        fileService.notifyPartUploaded(uploadFileDTO, token);
+        return Result.ok();
+    }
+
 
 }

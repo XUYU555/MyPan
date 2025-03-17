@@ -24,4 +24,9 @@ public class UploadFileVO {
      */
     private String status;
 
+    /**
+     * 预签命URL
+     */
+    private String presignedUrl;
+
 }

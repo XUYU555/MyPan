@@ -81,7 +81,7 @@ log:
 dev: false
 #  超级管理员id
 admin:
-  emails: 2090044620@qq.com,1234567890@qq.com
+  emails: 2090044620@qq.com
 #  qq登陆相关
 #  qq.app.id=12333
 #  qq.app.key=2222222

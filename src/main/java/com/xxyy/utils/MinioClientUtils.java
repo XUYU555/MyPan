@@ -1,10 +1,13 @@
 package com.xxyy.utils;
 
+import com.xxyy.entity.dto.UploadFileDTO;
 import com.xxyy.entity.enums.ResponseCodeEnums;
 import com.xxyy.utils.common.AppException;
 import com.xxyy.utils.common.CustomMinioClient;
 import io.minio.*;
 import io.minio.http.Method;
+import io.minio.messages.DeleteError;
+import io.minio.messages.DeleteObject;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -15,7 +18,10 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.net.URLConnection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 
 /**
@@ -119,5 +125,56 @@ public class MinioClientUtils {
                 .extraQueryParams(map)
                 .build());
         return presignedObjectUrl;
+    }
+
+    public String getPartPresignedURL(String fileId, int chunkIndex) throws Exception{
+        if (!customMinioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
+            log.info("创建桶：{}", bucket);
+            customMinioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+        }
+        String objectPath = "temp/" + fileId + "/chunk-" + chunkIndex;
+        return customMinioClient.getPresignedObjectUrl(
+                GetPresignedObjectUrlArgs.builder()
+                        .bucket(bucket)
+                        .object(objectPath)
+                        .method(Method.PUT)
+                        .expiry(1, TimeUnit.HOURS)
+                        .build());
+    }
+
+    public void mergeShardFile(UploadFileDTO uploadFileDTO, String dbPath) throws Exception {
+        if (!customMinioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
+            log.info("创建桶：{}", bucket);
+            customMinioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+        }
+        String objectPath = "temp/" + uploadFileDTO.getFileId() + "/chunk-";
+        List<ComposeSource> composeSources = Stream.iterate(0, i -> ++i)
+                .limit(uploadFileDTO.getChunks())
+                .map(i -> ComposeSource.builder()
+                        .bucket(bucket)
+                        .object(objectPath + i)
+                        .build())
+                .collect(Collectors.toList());
+        ObjectWriteResponse objectWriteResponse = customMinioClient.composeObject(ComposeObjectArgs.builder()
+                .bucket(bucket)
+                .object(dbPath)
+                .sources(composeSources)
+                .build());
+        // 合并完成需要删除分片文件
+        Iterable<Result<DeleteError>> results = customMinioClient.removeObjects(RemoveObjectsArgs.builder()
+                .bucket(bucket)
+                .objects(Stream.iterate(0, i -> ++i)
+                        .limit(uploadFileDTO.getChunks())
+                        .map(i -> new DeleteObject(objectPath + i))
+                        .collect(Collectors.toList()))
+                .build());
+        // 可以使用返回值results查看是否删除失败
+        results.forEach(f -> {
+            try {
+                DeleteError deleteError = f.get();
+            } catch (Exception e) {
+                log.error("分片文件删除失败", e);
+            }
+        });
     }
 }

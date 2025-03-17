@@ -18,16 +18,14 @@ public class UploadFileDTO {
     private String fileId;
 
     /**
-     * 文件流
-     */
-    @VerifyParams(required = true)
-    private MultipartFile file;
-
-    /**
      * 文件名
      */
     @VerifyParams(required = true)
     private String fileName;
+
+
+    @VerifyParams(required = true)
+    private long fileSize;
 
     /**
      * 父级id
