@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -160,11 +161,15 @@ public class MinioClientUtils {
                 .object(dbPath)
                 .sources(composeSources)
                 .build());
+    }
+
+    public void removeTempFiles(int chunks, String fileId) {
+        String objectPath = "temp/" + fileId + "/chunk-";
         // 合并完成需要删除分片文件
         Iterable<Result<DeleteError>> results = customMinioClient.removeObjects(RemoveObjectsArgs.builder()
                 .bucket(bucket)
                 .objects(Stream.iterate(0, i -> ++i)
-                        .limit(uploadFileDTO.getChunks())
+                        .limit(chunks)
                         .map(i -> new DeleteObject(objectPath + i))
                         .collect(Collectors.toList()))
                 .build());
@@ -176,5 +181,22 @@ public class MinioClientUtils {
                 log.error("分片文件删除失败", e);
             }
         });
+    }
+
+    public GetObjectResponse getFileStream(String filePath) throws Exception {
+        GetObjectResponse response = customMinioClient.getObject(GetObjectArgs.builder()
+                .bucket(bucket)
+                .object(filePath)
+                .build());
+        return response;
+    }
+
+    public void putCover(InputStream inputStream, String filePath, long length) throws Exception {
+        ObjectWriteResponse objectWriteResponse = customMinioClient.putObject(PutObjectArgs.builder()
+                .bucket(bucket)
+                .object(filePath)
+                .stream(inputStream, length, -1)
+                .contentType("image/jpeg")
+                .build());
     }
 }

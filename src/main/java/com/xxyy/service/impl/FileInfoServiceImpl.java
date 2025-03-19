@@ -14,6 +14,7 @@ import com.xxyy.mapper.UserInfoMapper;
 import com.xxyy.service.IFileInfoService;
 import com.xxyy.utils.*;
 import com.xxyy.utils.common.AppException;
+import io.minio.GetObjectResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -25,6 +26,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 
 import javax.annotation.Resource;
@@ -96,19 +99,6 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         return PagingQueryVO.of(pageResult);
     }
 
-    private FileInfo createFileInfo(UploadFileDTO upLoadFileDTO, String userId, Date curDate, FileTypeEnums fileTypeEnums, String fileId) {
-        FileInfo fileInfo = new FileInfo();
-        fileInfo.setUserId(userId);
-        fileInfo.setFilePid(upLoadFileDTO.getFilePid());
-        fileInfo.setFileName(upLoadFileDTO.getFileName());
-        fileInfo.setFileMd5(upLoadFileDTO.getFileMd5());
-        fileInfo.setFileId(fileId);
-        fileInfo.setFileType(fileTypeEnums.getType());
-        fileInfo.setCreateTime(curDate);
-        fileInfo.setLastUpdateTime(curDate);
-        return fileInfo;
-    }
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UploadFileVO uploadFile(UploadFileDTO upLoadFileDTO, String token) {
@@ -173,7 +163,7 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         uploadFileVO.setPresignedUrl(partPresignedURL);
         // 存入临时文件的大小到Redis
         stringRedisTemplate.opsForValue().set(RedisConstants.MYPAN_FILE_TEMP_SIZE + userId + ":" + uploadFileVO.getFileId(),
-                String.valueOf((curSize + upLoadFileDTO.getFileSize())), 1, TimeUnit.DAYS);
+                String.valueOf((curSize + upLoadFileDTO.getFileSize())), 2, TimeUnit.HOURS);
         // 判断分片数据传输是否完成
         if (upLoadFileDTO.getChunkIndex() < upLoadFileDTO.getChunks() - 1) {
             uploadFileVO.setStatus(UploadStatusEnums.UPLOADING.getCode());
@@ -226,12 +216,11 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         if (userId == null && token.length() == CodeConstants.LENGTH_10) {
             userId = token;
         }
-        FileInfoServiceImpl proxy = applicationContext.getBean(FileInfoServiceImpl.class);
-        FileInfo fileInfo = proxy.getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId).eq(FileInfo::getUserId, userId));
+        FileInfo fileInfo = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId).eq(FileInfo::getUserId, userId));
         if (fileInfo == null) {
             // 请求的是ts文件
             String realFileId = fileId.split("-")[0];
-            fileInfo = proxy.getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, realFileId));
+            fileInfo = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, realFileId));
             targetPath = fileInfo.getFilePath().split("\\.")[0] + "/" + fileId;
         } else if (fileInfo.getFileType().intValue() == FileTypeEnums.VIDEO.getType().intValue()) {
             // 获取m3u8索引文件
@@ -458,43 +447,161 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
      */
     @Transactional(rollbackFor = Exception.class)
     public void _notifyPartUploaded(UploadFileDTO uploadFileDTO, String userId) {
-        Date cur = new Date();
-        String fileSuffix = StringTools.getFileSuffix(uploadFileDTO.getFileName());
-        FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
-        String month = new SimpleDateFormat("YYYYMM").format(cur);
-        String dbPath = month + "/" + userId + uploadFileDTO.getFileId() + "." + fileSuffix;
-        if (CodeConstants.CN_TUPIAN.equals(fileTypeEnums.getDesc())) {
-            dbPath = month + "/" + userId + uploadFileDTO.getFileId() + CodeConstants.IMAGE_FILE_SUFFIX;
-        }
         try {
+            Date cur = new Date();
+            String fileSuffix = StringTools.getFileSuffix(uploadFileDTO.getFileName());
+            FileTypeEnums fileTypeEnums = FileTypeEnums.getFileTypeBySuffix("." + fileSuffix);
+            String month = new SimpleDateFormat("YYYYMM").format(cur);
+            String dbPath = month + "/" + userId + uploadFileDTO.getFileId() + "." + fileSuffix;
+            if (CodeConstants.CN_TUPIAN.equals(fileTypeEnums.getDesc())) {
+                dbPath = month + "/" + userId + uploadFileDTO.getFileId() + CodeConstants.IMAGE_FILE_SUFFIX;
+            }
             minioClientUtils.mergeShardFile(uploadFileDTO, dbPath);
+            Long totalUseSize = getCurSize(userId, uploadFileDTO.getFileId());
+            // 将文件数据插入到数据库中
+            FileInfo fileInfo = new FileInfo();
+            fileInfo.setUserId(userId);
+            fileInfo.setFilePid(uploadFileDTO.getFilePid());
+            fileInfo.setFileName(uploadFileDTO.getFileName());
+            fileInfo.setFileMd5(uploadFileDTO.getFileMd5());
+            fileInfo.setFileId(uploadFileDTO.getFileId());
+            fileInfo.setFileType(fileTypeEnums.getType());
+            fileInfo.setCreateTime(cur);
+            fileInfo.setLastUpdateTime(cur);
+            fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
+            // 设置文件为转码中，当文件分片合并完毕时修改
+            fileInfo.setStatus(FileStatusEnums.TRANSFER.getCode());
+            fileInfo.setFolderType(FolderTypeEnums.DOCUMENT.getType());
+            fileInfo.setFileCategory(fileTypeEnums.getCategory().getCode());
+            fileInfo.setFileSize(totalUseSize);
+            fileInfo.setFilePath(dbPath);
+            save(fileInfo);
+            // 更新用户使用空间
+            updateUserSpace(userId, totalUseSize, null);
+            userInfoMapper.updateUserSpace(userId, totalUseSize, null);
+            // 设置事务管理，在当前事务提交后在执行
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    // 使用线程池处理转码任务
+                    executorService.submit(() -> handlerSpecialFile(uploadFileDTO.getFileId(), userId));
+                }
+            });
         } catch (Exception e) {
             throw new AppException("文件合并失败" + uploadFileDTO.getFileId(), e);
+        } finally {
+            // 清除临时文件，不管是否合并完成或失败
+            minioClientUtils.removeTempFiles(uploadFileDTO.getChunks(), uploadFileDTO.getFileId());
         }
-        Long totalUseSize = getCurSize(userId, uploadFileDTO.getFileId());
-        // 将文件数据插入到数据库中
-        FileInfo fileInfo = new FileInfo();
-        fileInfo.setUserId(userId);
-        fileInfo.setFilePid(uploadFileDTO.getFilePid());
-        fileInfo.setFileName(uploadFileDTO.getFileName());
-        fileInfo.setFileMd5(uploadFileDTO.getFileMd5());
-        fileInfo.setFileId(uploadFileDTO.getFileId());
-        fileInfo.setFileType(fileTypeEnums.getType());
-        fileInfo.setCreateTime(cur);
-        fileInfo.setLastUpdateTime(cur);
-        fileInfo.setDelFlag(FileDelFlagEnums.NORMAL.getCode());
-        // 设置文件为转码中，当文件分片合并完毕时修改
-        fileInfo.setStatus(FileStatusEnums.TRANSFER.getCode());
-        fileInfo.setFolderType(FolderTypeEnums.DOCUMENT.getType());
-        fileInfo.setFileCategory(fileTypeEnums.getCategory().getCode());
-        fileInfo.setFileSize(totalUseSize);
-        fileInfo.setFilePath(dbPath);
-        save(fileInfo);
-        // 更新用户使用空间
-        updateUserSpace(userId, totalUseSize, null);
-        userInfoMapper.updateUserSpace(userId, totalUseSize, null);
     }
 
+
+    private void handlerSpecialFile(String fileId, String userId) {
+        boolean handlerSuccess = true;
+        FileInfo fileInfo = null;
+        String cover = null;
+        try {
+            fileInfo = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId).eq(FileInfo::getUserId, userId));
+            if (fileInfo == null || fileInfo.getStatus().intValue() != FileStatusEnums.TRANSFER.getCode().intValue()) {
+                return;
+            }
+            try (GetObjectResponse fileStream = minioClientUtils.getFileStream(fileInfo.getFilePath())) {
+                // 处理图片文件
+                if (fileInfo.getFileType().intValue() == FileTypeEnums.IMAGE.getType().intValue()) {
+                    // 从minIO中获得文件流
+                    cover = coverThumbnail(fileInfo.getFilePath(), fileStream);
+                } else if (fileInfo.getFileType().intValue() == FileTypeEnums.VIDEO.getType().intValue()) {
+                    // TODO: 2025/3/18 切割视频文件
+                    cover = videoCutting(fileInfo.getFilePath(), fileId, fileStream);
+                }
+            }
+        } catch (Exception e) {
+            handlerSuccess = false;
+            log.error("文件转码失败,文件ID：{}", fileId, e);
+        } finally {
+            fileInfo.setFileCover(cover);
+            fileInfo.setStatus(handlerSuccess? FileStatusEnums.USING.getCode(): FileStatusEnums.TRANSFER_FAIL.getCode());
+            updateById(fileInfo);
+        }
+    }
+
+    private String coverThumbnail(String filePath, GetObjectResponse fileStream) {
+        String targetPath = filePath.split("\\.")[0] + "_" + CodeConstants.IMAGE_FILE_SUFFIX;
+        try {
+            List<String> command = Arrays.asList("ffmpeg", "-i", "pipe:0", "-y", "-f", "image2", "-t", "0.001", "-s",
+                    CodeConstants.RESOLUTION_150, "pipe:1");
+            ByteArrayOutputStream outputStream = ProcessUtils.streamCutCover(command, fileStream);
+            byte[] coverByteArray = outputStream.toByteArray();
+            try (ByteArrayInputStream inputStream = new ByteArrayInputStream(coverByteArray)) {
+                minioClientUtils.putCover(inputStream, targetPath, coverByteArray.length);
+            } catch (Exception e) {
+                log.error("缩略图上传失败:{}", filePath, e);
+            }
+            outputStream.close();
+        } catch (Exception e) {
+            throw new AppException("获取图片缩略图失败", e);
+        }
+        return targetPath;
+    }
+
+    private String videoCutting(String filePath, String fileId, GetObjectResponse fileInputStream) throws Exception {
+        String targetPath = filePath.split("\\.")[0] + "_" + CodeConstants.IMAGE_FILE_SUFFIX;
+        String sourcePath = projectFile + CodeConstants.FILE + filePath;
+        // ts文件存放路径
+        String tsPath = projectFile + CodeConstants.FILE + filePath.split("\\.")[0];
+        File directory = new File(tsPath);
+        File tsFile = directory;
+        if (!tsFile.exists()) {
+            tsFile.mkdirs();
+        }
+        // TODO: 2025/3/18 直接从minIO中下载视频之后再进行处理
+        try (FileOutputStream outputStream = new FileOutputStream(sourcePath)) {
+            byte[] buffer = new byte[8192];
+            int len;
+            while((len = fileInputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, len);
+            }
+            outputStream.flush();
+        }
+        String tsPathName = tsPath + "/" + CodeConstants.TS_NAME;
+        // 将mp4 转化为 ts视频文件 "ffmpeg -y -i %s -vcodec copy -acodec copy -bsf:v h264_mp4toannexb %s"
+        List<String> tsList = Arrays.asList
+                ("ffmpeg", "-y", "-i", sourcePath, "-vcodec", "copy", "-acodec", "copy", "-bsf:v", "h264_mp4toannexb", tsPathName);
+        ProcessUtils.executeCommand(tsList);
+        // 将ts视频文件，切割成30秒一个的切片  ffmpeg -i %s -c copy -map 0 -f segment -segment-list %s -segment_time 30 %s/%s-%%4d.ts
+        String cmdCutTs = "%s"+ File.separator + "%s-%%4d.ts";
+        String cutName = String.format(cmdCutTs, tsPath, fileId);
+        String m3u8Path = tsPath + File.separator + CodeConstants.M3U8_NAME;
+        List<String> tsCutList = Arrays.asList(
+                "ffmpeg", "-i", tsPathName, "-c", "copy", "-map", "0", "-f", "segment", "-segment_list", m3u8Path, "-segment_time", "20", cutName);
+        ProcessUtils.executeCommand(tsCutList);
+        // 生成缩略图
+        String cover = videoCover(sourcePath, targetPath);
+        // 删除index.ts文件
+        new File(tsPathName).delete();
+        new File(sourcePath).delete();
+        for (File cutFile : Objects.requireNonNull(directory.listFiles())) {
+            minioClientUtils.uploadM3U8File(cutFile, filePath.split("\\.")[0] + "/" + cutFile.getName());
+            cutFile.delete();
+        }
+        return cover;
+    }
+
+    private String videoCover(String sourcePath, String targetPath) {
+        String targetFileName = projectFile + CodeConstants.FILE + targetPath;
+        List<String> command = Arrays.asList("ffmpeg", "-i", sourcePath, "-y", "-f", "image2", "-t", "0.001", "-s",
+                CodeConstants.RESOLUTION_150, targetFileName);
+        ProcessUtils.executeCommand(command);
+        // 上传到minIO
+        File file = new File(targetFileName);
+        try(FileInputStream inputStream = new FileInputStream(targetFileName)) {
+            minioClientUtils.putCover(inputStream, targetPath, file.length());
+            file.delete();
+        } catch (Exception e) {
+            throw new AppException("上传视频封面图失败", e);
+        }
+        return targetPath;
+    }
 
     private void findFileInFolder(List<FileInfo> subFolderFiles, List<FileInfo> fileList, FileInfo fileInfo, String userId) {
         if(fileInfo.getFolderType().intValue() == FolderTypeEnums.FOLDER.getType().intValue()) {
@@ -570,148 +677,6 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo> i
         return 0L;
     }
 
-    @Async
-    @Transactional(rollbackFor = Exception.class)
-    protected void mergeFiles(String fileId, String userId) {
-        boolean mergeFilesSuccess = true;
-        String targetPath = null;
-        String cover = null;
-        FileInfo fileInfo = null;
-        try {
-            fileInfo = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId).eq(FileInfo::getUserId, userId));
-            if (fileInfo == null || !Objects.equals(fileInfo.getStatus(), FileStatusEnums.TRANSFER.getCode())) {
-                return;
-            }
-            String directory = fileInfo.getFilePath();
-            targetPath = projectFile + CodeConstants.FILE + directory.split("/")[0];
-            File targetFile = new File(targetPath);
-            if (!targetFile.exists()) {
-                targetFile.mkdirs();
-            }
-            String sourcePath = projectFile + CodeConstants.TEMP_FILE + userId + "/" + fileId + "/";
-            union(targetFile, sourcePath, fileInfo.getFilePath().split("/")[1], true);
-            minioClientUtils.uploadFile(targetPath, fileInfo.getFilePath());
-            if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.VIDEO.getType())) {
-                // 处理视频文件
-                videoCutting(fileId, userId);
-                cover = coverThumbnail(targetPath, fileId, userId);
-                minioClientUtils.uploadFile(targetPath, cover);
-                String filePath = fileInfo.getFilePath().split("\\.")[0];
-                File cutDirectory = new File(projectFile + CodeConstants.FILE + filePath);
-                for (File file : cutDirectory.listFiles()) {
-                    executorService.submit(() -> {
-                        try {
-                            minioClientUtils.uploadM3U8File(file, filePath + "/" + file.getName());
-                            boolean delete = file.delete();
-                            if (!delete) {
-                                log.debug("分片文件：{}删除成功", file.getPath());
-                            }
-                        } catch (Exception e) {
-                            log.error("上传视频分片文件 {} 失败", file.getPath(), e);
-                            throw new AppException(ResponseCodeEnums.CODE_500);
-                        }
-                    });
-                }
-            } else if (Objects.equals(fileInfo.getFileType(), FileTypeEnums.IMAGE.getType())){
-                // 处理图片文件
-                cover = coverThumbnail(targetPath, fileId, userId);
-                minioClientUtils.uploadFile(targetPath, cover);
-            }
-            if(cover != null) {
-                boolean deleteCover = new File(targetPath + "/" + cover.split("/")[1]).delete();
-                if (!deleteCover) {
-                    log.debug("封面文件：{}删除失败", targetPath + "/" + cover.split("/")[1]);
-                }
-            }
-            boolean deleteSource = new File(targetPath + "/" + fileInfo.getFilePath().split("/")[1]).delete();
-            if (!deleteSource) {
-                log.debug("源文件：{}删除失败", targetPath + "/" + fileInfo.getFilePath().split("/")[1]);
-            }
-        } catch (Exception e) {
-            mergeFilesSuccess = false;
-            log.error("文件转码失败,文件Id:{},用户Id:{}", fileId,  userId, e);
-        } finally {
-            //  修改FileInfo状态
-            if (fileInfo != null) {
-                fileInfo.setFileSize(new File(targetPath + "/" + fileInfo.getFilePath().split("/")[1]).length());
-                fileInfo.setFileCover(cover);
-                fileInfo.setStatus(mergeFilesSuccess?FileStatusEnums.USING.getCode(): FileStatusEnums.TRANSFER_FAIL.getCode());
-                fileInfo.setFileId(fileId);
-                fileInfo.setUserId(userId);
-                updateById(fileInfo);
-            }
-        }
-    }
-
-    private String coverThumbnail(String filePath, String fileId, String userId) {
-        //  ffmpeg -i test.asf -y -f image2 -t 0.001 -s 352x240 a.jpg
-        FileInfo fileInfo = getOne(new QueryWrapper<FileInfo>().eq("file_id", fileId).eq("user_id", userId));
-        String sourcePath = filePath + "/" + fileInfo.getFilePath().split("/")[1];
-        String targetPath = fileInfo.getFilePath().split("\\.")[0] + "_" + CodeConstants.IMAGE_FILE_SUFFIX;
-        String targetFileName = filePath + "/" + targetPath.split("/")[1];
-        List<String> command = Arrays.asList("ffmpeg", "-i", sourcePath, "-y", "-f", "image2", "-t", "0.001", "-s",
-                CodeConstants.RESOLUTION_150, targetFileName);
-        ProcessUtils.executeCommand(command);
-        return targetPath;
-    }
-
-    private void videoCutting(String fileId, String userId) {
-        FileInfo fileInfo = getOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId).eq(FileInfo::getUserId, userId));
-        String sourcePath = projectFile + CodeConstants.FILE + fileInfo.getFilePath();
-        // ts文件存放路径
-        String tsPath = projectFile + CodeConstants.FILE + fileInfo.getFilePath().split("\\.")[0];
-        File tsFile = new File(tsPath);
-        if (!tsFile.exists()) {
-            tsFile.mkdirs();
-        }
-        // 将mp4 转化为 ts视频文件 "ffmpeg -y -i %s -vcodec copy -acodec copy -bsf:v h264_mp4toannexb %s"
-        String tsPathName = tsPath + "/" + CodeConstants.TS_NAME;
-        List<String> tsList = Arrays.asList
-                ("ffmpeg", "-y", "-i", sourcePath, "-vcodec", "copy", "-acodec", "copy", "-bsf:v", "h264_mp4toannexb", tsPathName);
-        // 将ts视频文件，切割成30秒一个的切片  ffmpeg -i %s -c copy -map 0 -f segment -segment-list %s -segment_time 30 %s/%s-%%4d.ts
-        String cmdCutTs = "%s"+ File.separator + "%s-%%4d.ts";
-        String cutName = String.format(cmdCutTs, tsPath, fileId);
-        String m3u8Path = tsPath + File.separator + CodeConstants.M3U8_NAME;
-        // TODO: 2024/9/28 视频切割30秒为一个ts会出现无法加载0001bug
-        List<String> tsCutList = Arrays.asList(
-                "ffmpeg", "-i", tsPathName, "-c", "copy", "-map", "0", "-f", "segment", "-segment_list", m3u8Path, "-segment_time", "20", cutName);
-        ProcessUtils.executeCommand(tsList);
-        ProcessUtils.executeCommand(tsCutList);
-        // 删除index.ts文件
-        new File(tsPathName).delete();
-    }
-
-    private void union(File targetFile, String sourcePath, String realFileName, boolean delSource) {
-        //  targetFile.getPath() + "/" + realFileName  目标文件地址
-        try (RandomAccessFile rwFile = new RandomAccessFile(targetFile.getPath() + "/" + realFileName, "rw")) {
-            File sourceFile = new File(sourcePath);
-            if (!sourceFile.exists()) {
-                throw new AppException("文件目录不存在:" + sourceFile.getPath());
-            }
-            int len = 0;
-            byte[] bytes = new byte[1024 * 5];
-            for (int i = 0; i < sourceFile.listFiles().length; i++) {
-                String source = sourcePath + i;
-                try (RandomAccessFile rFile = new RandomAccessFile(source, "r")) {
-                    while ((len = rFile.read(bytes)) != -1) {
-                        rwFile.write(bytes, 0, len);
-                    }
-                }
-            }
-        } catch (FileNotFoundException e) {
-            throw new AppException("文件没有找到: " + targetFile.getPath(), e );
-        } catch (IOException e) {
-            throw new AppException("文件合并失败", e);
-        } finally {
-            if (delSource) {
-                try {
-                    FileUtils.deleteDirectory(new File(sourcePath));
-                } catch (IOException e) {
-                   log.error("删除临时文件失败，文件路径:{}", sourcePath, e);
-                }
-            }
-        }
-    }
 
     public boolean checkFilePid(String filePid, String fileId, String userId) {
         if (filePid.equals(fileId)) {
